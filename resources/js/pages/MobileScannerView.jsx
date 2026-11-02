@@ -18,6 +18,7 @@ import {
 import CardUploadDropzone from '../components/scanner/CardUploadDropzone';
 import CardFormEditor from '../components/scanner/CardFormEditor';
 import JsonViewer from '../components/scanner/JsonViewer';
+import DuplicateWarningModal from '../components/scanner/DuplicateWarningModal';
 import { scanCard, saveCard } from '../services/cardApi';
 import { downloadVCard, openWhatsApp, isLandlineNumber, initiatePhoneCall } from '../services/vcfHelper';
 import { useImageProcessor } from '../hooks/useImageProcessor';
@@ -39,6 +40,7 @@ export default function MobileScannerView({
     const [cardData, setCardData] = useState(null);
     const [activeTab, setActiveTab] = useState('table'); // 'table' | 'json'
     const [isSaving, setIsSaving] = useState(false);
+    const [duplicateWarning, setDuplicateWarning] = useState(null);
 
     // Handle File Selection
     const handleFileSelected = async (file) => {
@@ -77,6 +79,7 @@ export default function MobileScannerView({
         setImageFileName('');
         setCardData(null);
         setScanError(null);
+        setDuplicateWarning(null);
     };
 
     // Retry Scan with current file
@@ -91,6 +94,7 @@ export default function MobileScannerView({
         setIsScanning(true);
         setCardData(null);
         setScanError(null);
+        setDuplicateWarning(null);
         setScanProgress('Uploading business card...');
 
         const progressSteps = [
@@ -133,9 +137,9 @@ export default function MobileScannerView({
         }
     };
 
-    // Save to Database
-    const handleSave = async () => {
-        if (!cardData) return;
+    // Save to Database with Duplicate Detection
+    const handleSave = async (forceDuplicate = false) => {
+        if (!cardData || isSaving) return;
         setIsSaving(true);
         try {
             const payload = {
@@ -158,12 +162,25 @@ export default function MobileScannerView({
                 detected_language: cardData.detected_language || 'Gujarati',
                 image_path: cardData.image_path || imagePreview,
                 raw_data: cardData,
+                force_duplicate: forceDuplicate,
             };
 
             const result = await saveCard(payload);
+
             if (result.success) {
-                showToast('Card saved to business directory!', 'success');
+                setDuplicateWarning(null);
+                const successMsg = result.duplicate_override
+                    ? 'Card saved as new contact (override)!'
+                    : 'Card saved to business directory!';
+                showToast(successMsg, 'success');
                 if (onCardSaved) onCardSaved(result.card);
+            } else if (result.duplicate || result.status === 409) {
+                // Show Duplicate Warning Modal with existing matches
+                setDuplicateWarning({
+                    existingCards: result.existing_cards || [],
+                    matchReason: result.match_reason || 'phone',
+                    message: result.message,
+                });
             } else {
                 showToast(result.message || 'Error saving to database', 'error');
             }
@@ -295,7 +312,7 @@ export default function MobileScannerView({
                     {/* Primary Commit Button */}
                     <div className="pt-2">
                         <button
-                            onClick={handleSave}
+                            onClick={() => handleSave(false)}
                             disabled={isSaving}
                             className="w-full py-3.5 px-5 rounded-2xl bg-black hover:bg-zinc-800 text-white text-xs font-bold transition-all shadow-pill active:scale-95 flex items-center justify-center gap-2"
                         >
@@ -309,6 +326,19 @@ export default function MobileScannerView({
                     </div>
                 </div>
             )}
+
+            {/* Duplicate Warning Modal */}
+            <DuplicateWarningModal
+                isOpen={Boolean(duplicateWarning)}
+                duplicateData={duplicateWarning}
+                onClose={() => setDuplicateWarning(null)}
+                onForceSave={() => handleSave(true)}
+                onViewExisting={(existingCard) => {
+                    setDuplicateWarning(null);
+                    onNavigateToCards?.(existingCard);
+                }}
+                isSaving={isSaving}
+            />
         </div>
     );
 }

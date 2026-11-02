@@ -42,7 +42,14 @@ export async function saveCard(cardData) {
         },
         body: JSON.stringify(cardData),
     });
-    return response.json();
+
+    const data = await response.json().catch(() => ({}));
+
+    return {
+        ...data,
+        status: response.status,
+        ok: response.ok,
+    };
 }
 
 export async function deleteCard(id) {

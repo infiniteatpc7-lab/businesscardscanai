@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Card;
+use App\Services\CardDuplicateDetector;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -313,9 +314,9 @@ EOT;
     }
 
     /**
-     * Store a scanned or edited card in the database.
+     * Store a scanned or edited card in the database with duplicate detection.
      */
-    public function store(Request $request): JsonResponse
+    public function store(Request $request, CardDuplicateDetector $duplicateDetector): JsonResponse
     {
         $validated = $request->validate([
             'company' => 'nullable|string|max:255',
@@ -337,7 +338,41 @@ EOT;
             'detected_language' => 'nullable|string|max:100',
             'image_path' => 'nullable|string|max:500',
             'raw_data' => 'nullable|array',
+            'force_duplicate' => 'nullable|boolean',
         ]);
+
+        $forceDuplicate = filter_var($request->input('force_duplicate', false), FILTER_VALIDATE_BOOLEAN);
+
+        // Run duplicate detection against existing contacts
+        $duplicateResult = $duplicateDetector->detectDuplicates($validated);
+
+        if ($duplicateResult['has_duplicates']) {
+            if (! $forceDuplicate) {
+                $reasonText = match ($duplicateResult['primary_reason']) {
+                    'phone' => 'A contact with this phone number is already saved in your directory.',
+                    'email' => 'A contact with this email address is already saved in your directory.',
+                    'name_company' => 'A card with this contact name and company already exists in your directory.',
+                    default => 'A potential matching card already exists in your directory.',
+                };
+
+                return response()->json([
+                    'success' => false,
+                    'duplicate' => true,
+                    'message' => $reasonText,
+                    'match_reason' => $duplicateResult['primary_reason'],
+                    'existing_cards' => $duplicateResult['matching_cards'],
+                ], 409);
+            }
+
+            Log::info('Duplicate card save forced by user override', [
+                'name' => $validated['name'] ?? null,
+                'company' => $validated['company'] ?? null,
+                'match_count' => count($duplicateResult['matching_cards']),
+            ]);
+        }
+
+        // Remove non-model attribute before Eloquent create
+        unset($validated['force_duplicate']);
 
         $card = Card::create($validated);
 
@@ -345,6 +380,7 @@ EOT;
             'success' => true,
             'message' => 'Card saved successfully to database!',
             'card' => $card,
+            'duplicate_override' => $forceDuplicate && $duplicateResult['has_duplicates'],
         ], 201);
     }
 

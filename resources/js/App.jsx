@@ -115,7 +115,12 @@ function MobileAppContent() {
                         {activeTab === 'scan' && (
                             <MobileScannerView
                                 onCardSaved={handleCardSaved}
-                                onNavigateToCards={() => setActiveTab('cards')}
+                                onNavigateToCards={(card) => {
+                                    if (card) {
+                                        setSelectedCardForModal(card);
+                                    }
+                                    setActiveTab('cards');
+                                }}
                             />
                         )}
 
