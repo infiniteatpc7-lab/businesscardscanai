@@ -13,6 +13,8 @@ export default function AuthModal({ isOpen, onSuccess }) {
     const [isLoading, setIsLoading] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
 
+    const hasInviteInUrl = typeof window !== 'undefined' && window.location.pathname.includes('/invitations/');
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setErrorMessage('');
@@ -63,6 +65,14 @@ export default function AuthModal({ isOpen, onSuccess }) {
                             : 'Set up your secure business card directory & team workspace.'}
                     </p>
                 </div>
+
+                {/* Invitation Acceptance Notice */}
+                {hasInviteInUrl && (
+                    <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200/80 text-[11px] text-blue-900 flex items-center gap-2">
+                        <Mail className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span>Accepting workspace invitation. Sign in or register with your invited email.</span>
+                    </div>
+                )}
 
                 {/* Mode Selector Tabs */}
                 <div className="grid grid-cols-2 p-1 bg-zinc-100 rounded-2xl text-xs font-bold">

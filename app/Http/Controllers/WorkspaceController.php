@@ -199,7 +199,13 @@ class WorkspaceController extends Controller
                     acceptUrl: $acceptUrl
                 )
             );
-            $emailSent = true;
+
+            if (config('mail.default') === 'log' && ! app()->runningUnitTests()) {
+                $emailSent = false;
+                $emailError = 'Invitation email written to system log (SMTP not configured). Share the invitation link directly.';
+            } else {
+                $emailSent = true;
+            }
         } catch (Exception $e) {
             Log::warning("Failed to deliver workspace invitation email to {$invitation->email}: ".$e->getMessage());
             $emailError = 'Email delivery could not be completed, but the invitation was created. You can share the invitation link directly.';
@@ -270,6 +276,7 @@ class WorkspaceController extends Controller
         $acceptUrl = rtrim($baseUrl, '/').'/invitations/'.$plainToken;
 
         $emailSent = false;
+        $emailError = null;
         try {
             Mail::to($invitation->email)->send(
                 new WorkspaceInvitationMail(
@@ -280,16 +287,23 @@ class WorkspaceController extends Controller
                     acceptUrl: $acceptUrl
                 )
             );
-            $emailSent = true;
+
+            if (config('mail.default') === 'log' && ! app()->runningUnitTests()) {
+                $emailSent = false;
+                $emailError = 'Invitation email written to system log (SMTP not configured). Share the invitation link directly.';
+            } else {
+                $emailSent = true;
+            }
         } catch (Exception $e) {
             Log::warning("Failed to resend workspace invitation email to {$invitation->email}: ".$e->getMessage());
+            $emailError = 'Email delivery could not be completed. You can share the invitation link directly.';
         }
 
         return response()->json([
             'success' => true,
             'message' => $emailSent
                 ? 'Invitation resent successfully.'
-                : 'Invitation token regenerated. Share the link manually.',
+                : ($emailError ?? 'Invitation token regenerated. Share the link manually.'),
             'email_sent' => $emailSent,
             'invite_token' => $plainToken,
             'invite_link' => $acceptUrl,

@@ -40,6 +40,7 @@ export default function TeamMembersModal({
     const [inviteRole, setInviteRole] = useState('member');
     const [isInviting, setIsInviting] = useState(false);
     const [copiedInviteId, setCopiedInviteId] = useState(null);
+    const [recentShareLink, setRecentShareLink] = useState(null);
 
     const userRole = workspace.role || 'member';
     const isOwner = userRole === 'owner';
@@ -77,9 +78,16 @@ export default function TeamMembersModal({
         try {
             const res = await inviteWorkspaceMember(workspace.id, email, inviteRole);
             if (res.success) {
-                showToast(res.message || 'Invitation created!', 'success');
+                showToast(res.message || 'Invitation created!', res.email_sent ? 'success' : 'info');
                 setInviteEmail('');
                 setInviteRole('member');
+                if (res.invite_link) {
+                    setRecentShareLink({
+                        email,
+                        link: res.invite_link,
+                        emailSent: Boolean(res.email_sent),
+                    });
+                }
                 loadData();
             } else {
                 showToast(res.message || 'Failed to send invitation', 'error');
@@ -108,7 +116,13 @@ export default function TeamMembersModal({
         try {
             const res = await resendInvitation(workspace.id, inviteId);
             if (res.success) {
-                showToast(res.message || 'Invitation resent successfully!', 'success');
+                showToast(res.message || 'Invitation resent successfully!', res.email_sent ? 'success' : 'info');
+                if (res.invite_link) {
+                    setRecentShareLink({
+                        link: res.invite_link,
+                        emailSent: Boolean(res.email_sent),
+                    });
+                }
                 loadData();
             } else {
                 showToast(res.message || 'Failed to resend invitation', 'error');
@@ -235,6 +249,62 @@ export default function TeamMembersModal({
                     </form>
                 )}
 
+                {/* Explicit Email Sent / Copy Link Feedback Banner */}
+                {recentShareLink && (
+                    <div className={`p-3.5 rounded-2xl border text-xs space-y-2 animate-fade-in ${
+                        recentShareLink.emailSent
+                            ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
+                            : 'bg-amber-50/80 border-amber-200 text-amber-950'
+                    }`}>
+                        <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-1.5 font-bold">
+                                {recentShareLink.emailSent ? (
+                                    <>
+                                        <Check className="w-4 h-4 text-emerald-600" />
+                                        <span>Email Sent Successfully</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <AlertCircle className="w-4 h-4 text-amber-600" />
+                                        <span>Email Delivery Unavailable (Dev/Log Mode)</span>
+                                    </>
+                                )}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setRecentShareLink(null)}
+                                className="text-zinc-400 hover:text-zinc-600 text-xs font-bold"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                        <p className="text-[11px] text-zinc-600">
+                            {recentShareLink.emailSent
+                                ? `The invitation has been dispatched to ${recentShareLink.email || 'their email'}. You can also share the direct link below:`
+                                : `Direct SMTP delivery is not configured on this server. Copy and share this invitation link directly:`}
+                        </p>
+                        <div className="flex items-center gap-1.5 p-1.5 rounded-xl bg-white border border-zinc-200">
+                            <input
+                                type="text"
+                                readOnly
+                                value={recentShareLink.link}
+                                className="flex-1 bg-transparent text-[11px] font-mono text-zinc-800 px-1 focus:outline-none truncate select-all"
+                            />
+                            <button
+                                type="button"
+                                onClick={async () => {
+                                    await navigator.clipboard.writeText(recentShareLink.link);
+                                    showToast('Invitation link copied to clipboard!', 'info');
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-black text-white text-[10px] font-bold shrink-0 flex items-center gap-1 active:scale-95 transition-all"
+                            >
+                                <Copy className="w-3 h-3" />
+                                <span>Copy Link</span>
+                            </button>
+                        </div>
+                    </div>
+                )}
+
                 {/* Active Members List */}
                 <div className="space-y-2">
                     <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">
@@ -345,3 +415,4 @@ export default function TeamMembersModal({
         document.body
     );
 }
+
