@@ -26,11 +26,11 @@ export default function MobileHomePage({
     return (
         <div className="space-y-3 pb-20">
             {/* Dedicated Exhibition Line-Art Banner Section */}
-            <div className="w-full bg-white rounded-3xl overflow-hidden p-2 sm:p-3 border border-black/[0.04] flex items-center justify-center">
+            <div className="w-full rounded-3xl overflow-hidden shadow-behance border border-black/[0.05] bg-white">
                 <img
                     src="/images/business-exhibition-banner.webp"
                     alt="Business Exhibition"
-                    className="w-full h-[110px] sm:h-[190px] object-contain select-none pointer-events-none"
+                    className="w-full h-auto aspect-[16/7] object-cover block select-none pointer-events-none"
                     loading="eager"
                 />
             </div>
