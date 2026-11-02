@@ -22,9 +22,9 @@ export function ToastProvider({ children }) {
         <ToastContext.Provider value={{ showToast, hideToast }}>
             {children}
             {toast && (
-                <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 animate-bounce duration-300 w-[92%] max-w-md flex justify-center pointer-events-none">
+                <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 animate-bounce duration-300 flex justify-center pointer-events-none px-4 w-full max-w-lg">
                     <div
-                        className={`pointer-events-auto w-full px-5 py-3 rounded-full shadow-2xl border backdrop-blur-md flex items-center justify-center gap-3 text-xs font-semibold ${
+                        className={`pointer-events-auto inline-flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-full shadow-2xl border backdrop-blur-md text-xs font-semibold max-w-full ${
                             toast.type === 'error'
                                 ? 'bg-rose-950/95 text-rose-100 border-rose-800'
                                 : toast.type === 'info'
@@ -39,7 +39,7 @@ export function ToastProvider({ children }) {
                         ) : (
                             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                         )}
-                        <span className="whitespace-nowrap truncate">{toast.message}</span>
+                        <span className="whitespace-nowrap">{toast.message}</span>
 
                         {toast.action && (
                             <button
