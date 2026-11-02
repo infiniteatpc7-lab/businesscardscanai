@@ -12,8 +12,9 @@ import {
     ChevronRight,
     Languages
 } from 'lucide-react';
+import SwipeableCardItem from '../components/cards/SwipeableCardItem';
 import { downloadVCard, openWhatsApp } from '../services/vcfHelper';
-import { deleteCard } from '../services/cardApi';
+import { deleteCard, saveCard } from '../services/cardApi';
 import { useToast } from '../context/ToastContext';
 
 export default function MobileCardsPage({
@@ -55,14 +56,54 @@ export default function MobileCardsPage({
         return true;
     });
 
-    const handleDelete = async (id) => {
-        if (!confirm('Delete this card from your business directory?')) return;
+    // Delete with smooth swipe & 5-Second Undo Action
+    const handleDelete = async (id, cardToDelete = null) => {
+        const targetCard = cardToDelete || cards.find((c) => c.id === id);
         try {
             const res = await deleteCard(id);
             if (res.success) {
-                showToast('Card removed');
                 if (selectedCard?.id === id) setSelectedCard(null);
                 onRefresh();
+
+                // 5-Second Undo Action Toast (Gmail pattern)
+                if (targetCard) {
+                    showToast(
+                        `Deleted "${targetCard.company || targetCard.name || 'Card'}"`,
+                        'info',
+                        5000,
+                        {
+                            label: 'UNDO',
+                            onClick: async () => {
+                                const restorePayload = {
+                                    company: targetCard.company || '',
+                                    company_english: targetCard.company_english || '',
+                                    name: targetCard.name || '',
+                                    name_english: targetCard.name_english || '',
+                                    designation: targetCard.designation || '',
+                                    department: targetCard.department || '',
+                                    phone: Array.isArray(targetCard.phone) ? targetCard.phone : (targetCard.phone ? [targetCard.phone] : []),
+                                    email: targetCard.email || '',
+                                    website: targetCard.website || '',
+                                    address: targetCard.address || '',
+                                    address_english: targetCard.address_english || '',
+                                    tagline_services: targetCard.tagline_services || '',
+                                    tax_id: targetCard.tax_id || '',
+                                    social_profiles: Array.isArray(targetCard.social_profiles) ? targetCard.social_profiles : [],
+                                    accuracy_score: targetCard.accuracy_score || 90,
+                                    accuracy_reason: targetCard.accuracy_reason || '',
+                                    detected_language: targetCard.detected_language || 'Gujarati',
+                                    image_path: targetCard.image_path || null,
+                                    raw_data: targetCard.raw_data || null,
+                                };
+                                const restored = await saveCard(restorePayload);
+                                if (restored.success) {
+                                    showToast('Card restored successfully!');
+                                    onRefresh();
+                                }
+                            },
+                        }
+                    );
+                }
             }
         } catch (err) {
             console.error('Delete error:', err);
@@ -130,7 +171,16 @@ export default function MobileCardsPage({
                 </div>
             </div>
 
-            {/* Cards List */}
+            {/* Swipe hint */}
+            {filteredCards.length > 0 && (
+                <div className="flex items-center justify-center gap-2 text-[10px] text-zinc-400 font-medium px-2">
+                    <span>Swipe left to delete</span>
+                    <span>•</span>
+                    <span>Swipe right for WhatsApp</span>
+                </div>
+            )}
+
+            {/* Cards List (with Gmail-style Swipeable Items) */}
             {filteredCards.length === 0 ? (
                 <div className="bg-white rounded-3xl p-8 text-center shadow-behance border border-black/[0.04] space-y-3">
                     <div className="w-12 h-12 rounded-2xl bg-zinc-100 flex items-center justify-center mx-auto text-zinc-400">
@@ -148,97 +198,16 @@ export default function MobileCardsPage({
                     </button>
                 </div>
             ) : (
-                <div className="space-y-3">
-                    {filteredCards.map((card) => {
-                        const primaryPhone = Array.isArray(card.phone) && card.phone.length > 0 ? card.phone[0] : null;
-
-                        return (
-                            <div
-                                key={card.id}
-                                onClick={() => setSelectedCard(card)}
-                                className="bg-white rounded-3xl p-4 shadow-behance border border-black/[0.04] hover:shadow-behance-lg transition-all space-y-3 cursor-pointer active:scale-[0.99]"
-                            >
-                                {/* Card Top: Company & Language */}
-                                <div className="flex items-start justify-between gap-2">
-                                    <div className="space-y-0.5 min-w-0">
-                                        <h3 className="font-gujarati font-extrabold text-sm text-zinc-950 truncate">
-                                            {card.company || card.name || 'Unnamed Business'}
-                                        </h3>
-                                        {card.company_english && card.company && (
-                                            <p className="text-[11px] font-medium text-zinc-500 truncate">
-                                                {card.company_english}
-                                            </p>
-                                        )}
-                                    </div>
-                                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider shrink-0">
-                                        {card.detected_language || 'Card'}
-                                    </span>
-                                </div>
-
-                                {/* Person / Designation */}
-                                {(card.name || card.designation) && (
-                                    <div className="flex items-center gap-1.5 text-xs text-zinc-700 font-semibold">
-                                        <User className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-                                        <span className="truncate">{card.name || 'Contact'}</span>
-                                        {card.designation && (
-                                            <span className="text-zinc-400 font-normal truncate">· {card.designation}</span>
-                                        )}
-                                    </div>
-                                )}
-
-                                {/* Address Snippet */}
-                                {card.address && (
-                                    <div className="flex items-start gap-1.5 text-[11px] text-zinc-600 line-clamp-1">
-                                        <MapPin className="w-3 h-3 text-zinc-400 shrink-0 mt-0.5" />
-                                        <span className="font-gujarati truncate">{card.address}</span>
-                                    </div>
-                                )}
-
-                                {/* Bottom Quick Actions: Call, WhatsApp, VCF */}
-                                <div className="pt-2 border-t border-zinc-100 flex items-center justify-between">
-                                    <span className="text-[10px] text-zinc-400 font-mono">
-                                        {new Date(card.created_at || Date.now()).toLocaleDateString()}
-                                    </span>
-
-                                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                                        {/* Phone Call */}
-                                        {primaryPhone && (
-                                            <a
-                                                href={`tel:${primaryPhone}`}
-                                                className="w-8 h-8 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 flex items-center justify-center transition-all active:scale-95"
-                                                title="Call"
-                                            >
-                                                <Phone className="w-3.5 h-3.5" />
-                                            </a>
-                                        )}
-
-                                        {/* WhatsApp */}
-                                        {primaryPhone && (
-                                            <button
-                                                onClick={() => openWhatsApp(primaryPhone, card)}
-                                                className="w-8 h-8 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 flex items-center justify-center transition-all active:scale-95"
-                                                title="Chat on WhatsApp"
-                                            >
-                                                <MessageCircle className="w-3.5 h-3.5" />
-                                            </button>
-                                        )}
-
-                                        {/* Save to Phone (vCard) */}
-                                        <button
-                                            onClick={() => {
-                                                downloadVCard(card);
-                                                showToast('vCard downloaded for phone contacts');
-                                            }}
-                                            className="w-8 h-8 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 flex items-center justify-center transition-all active:scale-95"
-                                            title="Save to Phone Contacts"
-                                        >
-                                            <UserPlus className="w-3.5 h-3.5" />
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })}
+                <div className="space-y-1">
+                    {filteredCards.map((card) => (
+                        <SwipeableCardItem
+                            key={card.id}
+                            card={card}
+                            onSelectCard={(c) => setSelectedCard(c)}
+                            onDeleteCard={handleDelete}
+                            showToast={showToast}
+                        />
+                    ))}
                 </div>
             )}
 
@@ -351,10 +320,10 @@ export default function MobileCardsPage({
                             )}
                         </div>
 
-                        {/* Delete Action */}
+                        {/* Delete Action in Modal */}
                         <div className="pt-2 border-t border-zinc-100 flex items-center justify-between text-xs">
                             <button
-                                onClick={() => handleDelete(selectedCard.id)}
+                                onClick={() => handleDelete(selectedCard.id, selectedCard)}
                                 className="text-rose-600 font-semibold hover:underline flex items-center gap-1"
                             >
                                 <Trash2 className="w-3.5 h-3.5" />
