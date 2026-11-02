@@ -74,15 +74,7 @@ function MobileAppContent() {
                 <div className="absolute inset-0 bg-subtle-grid pointer-events-none opacity-60"></div>
 
                 {/* Top Header */}
-                <MobileHeader
-                    onLoadSample={() => {
-                        setActiveTab('scan');
-                        setTimeout(() => {
-                            const sampleBtn = document.querySelector('button[title*="Morbi Depo"]');
-                            if (sampleBtn) sampleBtn.click();
-                        }, 100);
-                    }}
-                />
+                <MobileHeader />
 
                 {/* Page Content Body */}
                 <main className="flex-1 p-4 relative z-10 overflow-y-auto flex flex-col">
