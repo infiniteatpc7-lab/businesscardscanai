@@ -107,6 +107,8 @@ function MobileAppContent() {
                                 onRefresh={loadCards}
                                 onNavigateToScan={() => setActiveTab('scan')}
                                 onExportCSV={handleExportCSV}
+                                initialSelectedCard={selectedCardForModal}
+                                onClearSelectedCard={() => setSelectedCardForModal(null)}
                             />
                         )}
 
