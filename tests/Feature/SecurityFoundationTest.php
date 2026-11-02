@@ -32,6 +32,8 @@ class SecurityFoundationTest extends TestCase
         ]);
 
         $workspace->users()->attach($user->id, ['role' => $role]);
+        $user->forceFill(['current_workspace_id' => $workspace->id])->save();
+
         $tokenData = $user->createToken('test_token');
 
         return [
@@ -70,13 +72,63 @@ class SecurityFoundationTest extends TestCase
         $this->getJson('/api/cards')->assertStatus(401);
         $this->postJson('/api/cards', ['name' => 'Test Card'])->assertStatus(401);
         $this->getJson('/api/cards/1')->assertStatus(401);
+        $this->putJson('/api/cards/1', ['name' => 'Updated Card'])->assertStatus(401);
         $this->deleteJson('/api/cards/1')->assertStatus(401);
         $this->postJson('/api/scan', [])->assertStatus(401);
         $this->getJson('/api/auth/user')->assertStatus(401);
     }
 
     /**
-     * 4. Query-string tokens and X-Api-Token headers are strictly rejected; only Bearer header works.
+     * 4. Strict Bearer authentication: No session fallback permitted on API routes.
+     */
+    public function test_strict_bearer_authentication_no_session_fallback(): void
+    {
+        $data = $this->createWorkspaceUser('Session Tester', 'session@example.com');
+        $user = $data['user'];
+
+        // Even if session authentication is active via actingAs, API route MUST reject if Bearer header is missing
+        $this->actingAs($user)
+            ->getJson('/api/cards')
+            ->assertStatus(401);
+
+        // Providing valid Bearer token succeeds
+        $this->withHeader('Authorization', 'Bearer '.$data['token'])
+            ->getJson('/api/cards')
+            ->assertStatus(200);
+    }
+
+    /**
+     * 5. Token regression: Missing, invalid, expired, and revoked tokens all fail with 401.
+     */
+    public function test_token_regression_missing_invalid_expired_and_revoked(): void
+    {
+        $data = $this->createWorkspaceUser('Token Tester', 'token_reg@example.com');
+        $user = $data['user'];
+        $validToken = $data['token'];
+
+        // Missing token
+        $this->getJson('/api/cards')->assertStatus(401);
+
+        // Invalid token
+        $this->withHeader('Authorization', 'Bearer invalid_bogus_token_12345')
+            ->getJson('/api/cards')
+            ->assertStatus(401);
+
+        // Expired token
+        $expiredToken = $user->createToken('expired', now()->subMinutes(10));
+        $this->withHeader('Authorization', 'Bearer '.$expiredToken['plain_token'])
+            ->getJson('/api/cards')
+            ->assertStatus(401);
+
+        // Revoked token (after deletion)
+        $data['token_model']->delete();
+        $this->withHeader('Authorization', 'Bearer '.$validToken)
+            ->getJson('/api/cards')
+            ->assertStatus(401);
+    }
+
+    /**
+     * 6. Query-string tokens and X-Api-Token headers are strictly rejected; only Bearer header works.
      */
     public function test_query_string_and_custom_header_tokens_are_rejected(): void
     {
@@ -99,7 +151,7 @@ class SecurityFoundationTest extends TestCase
     }
 
     /**
-     * 5. Registration creates user, workspace, membership and token inside a database transaction.
+     * 7. Registration creates user, workspace, membership and token inside a database transaction.
      */
     public function test_user_registration_creates_workspace_atomically(): void
     {
@@ -129,7 +181,7 @@ class SecurityFoundationTest extends TestCase
     }
 
     /**
-     * 6. User login uses generic failure response to prevent user enumeration.
+     * 8. User login uses generic failure response to prevent user enumeration.
      */
     public function test_login_uses_generic_failure_response(): void
     {
@@ -161,7 +213,7 @@ class SecurityFoundationTest extends TestCase
     }
 
     /**
-     * 7. Rate limiting protects login and registration endpoints against brute-force attacks.
+     * 9. Rate limiting protects login and registration endpoints against brute-force attacks.
      */
     public function test_login_and_registration_rate_limiting(): void
     {
@@ -183,23 +235,7 @@ class SecurityFoundationTest extends TestCase
     }
 
     /**
-     * 8. Token lifecycle: expired tokens cannot authenticate.
-     */
-    public function test_expired_tokens_cannot_authenticate(): void
-    {
-        $data = $this->createWorkspaceUser('Expired User', 'expired@example.com');
-        $user = $data['user'];
-
-        // Create an explicitly expired token
-        $expiredToken = $user->createToken('expired_token', now()->subHours(2));
-
-        $this->withHeader('Authorization', 'Bearer '.$expiredToken['plain_token'])
-            ->getJson('/api/cards')
-            ->assertStatus(401);
-    }
-
-    /**
-     * 9. Token lifecycle: logout revokes exclusively the current token.
+     * 10. Token lifecycle: logout revokes exclusively the current token.
      */
     public function test_logout_revokes_only_the_current_token(): void
     {
@@ -227,7 +263,94 @@ class SecurityFoundationTest extends TestCase
     }
 
     /**
-     * 10. Workspace Isolation: Workspace A cannot view, access, or delete Workspace B records.
+     * 11. Persistent workspace selection: switching workspace persists per user and scopes all subsequent requests.
+     */
+    public function test_persistent_workspace_selection_and_switching(): void
+    {
+        $data = $this->createWorkspaceUser('Multi WS User', 'multiws@example.com', 'owner');
+        $user = $data['user'];
+        $headers = ['Authorization' => 'Bearer '.$data['token']];
+        $ws1 = $data['workspace'];
+
+        // Create a second workspace and attach the user as member
+        $ws2 = Workspace::create([
+            'name' => 'Second Exhibition Workspace',
+            'slug' => 'ws-2-'.uniqid(),
+            'owner_id' => $user->id,
+        ]);
+        $ws2->users()->attach($user->id, ['role' => 'admin']);
+
+        // 1. Initially active in WS1 -> save Card 1
+        $this->postJson('/api/cards', [
+            'name' => 'Card In WS 1',
+            'company' => 'Ceramics One',
+        ], $headers)->assertStatus(201);
+
+        $res1 = $this->getJson('/api/cards', $headers)->assertStatus(200);
+        $this->assertCount(1, $res1->json('cards'));
+        $this->assertEquals('Card In WS 1', $res1->json('cards.0.name'));
+
+        // 2. Switch workspace to WS2
+        $switchRes = $this->postJson('/api/auth/switch-workspace', [
+            'workspace_id' => $ws2->id,
+        ], $headers);
+
+        $switchRes->assertStatus(200)
+            ->assertJsonPath('current_workspace.id', $ws2->id);
+
+        // Verify selection persisted in database
+        $this->assertEquals($ws2->id, $user->fresh()->current_workspace_id);
+
+        // 3. Subsequent requests without headers now use WS2 automatically
+        $res2 = $this->getJson('/api/cards', $headers)->assertStatus(200);
+        $this->assertCount(0, $res2->json('cards')); // WS2 has no cards yet
+
+        // Save Card 2 in WS2
+        $this->postJson('/api/cards', [
+            'name' => 'Card In WS 2',
+            'company' => 'Tiles Two',
+        ], $headers)->assertStatus(201);
+
+        $res2Updated = $this->getJson('/api/cards', $headers)->assertStatus(200);
+        $this->assertCount(1, $res2Updated->json('cards'));
+        $this->assertEquals('Card In WS 2', $res2Updated->json('cards.0.name'));
+
+        // 4. Switch back to WS1
+        $this->postJson('/api/auth/switch-workspace', ['workspace_id' => $ws1->id], $headers)->assertStatus(200);
+
+        // Subsequent requests now return only WS1 cards
+        $res1Back = $this->getJson('/api/cards', $headers)->assertStatus(200);
+        $this->assertCount(1, $res1Back->json('cards'));
+        $this->assertEquals('Card In WS 1', $res1Back->json('cards.0.name'));
+    }
+
+    /**
+     * 12. Membership validation: users cannot switch to a workspace they do not belong to.
+     */
+    public function test_user_cannot_switch_to_unauthorized_workspace(): void
+    {
+        $userA = $this->createWorkspaceUser('User A', 'usera_switch@example.com');
+        $userB = $this->createWorkspaceUser('User B', 'userb_switch@example.com');
+
+        $headersA = ['Authorization' => 'Bearer '.$userA['token']];
+
+        // User A attempts to switch to User B's workspace
+        $response = $this->postJson('/api/auth/switch-workspace', [
+            'workspace_id' => $userB['workspace']['id'],
+        ], $headersA);
+
+        $response->assertStatus(403)
+            ->assertJson([
+                'success' => false,
+                'message' => 'You do not have access to this workspace.',
+            ]);
+
+        // Current workspace remains unchanged
+        $this->assertEquals($userA['workspace']['id'], $userA['user']->fresh()->current_workspace_id);
+    }
+
+    /**
+     * 13. Workspace Isolation: Workspace A cannot view, access, or delete Workspace B records.
      */
     public function test_workspace_isolation(): void
     {
@@ -264,19 +387,26 @@ class SecurityFoundationTest extends TestCase
         // 2. User B cannot show Card A (returns 404)
         $this->getJson("/api/cards/{$cardA->id}", $headersB)->assertStatus(404);
 
-        // 3. User B cannot delete Card A
+        // 3. User B cannot update Card A (returns 404)
+        $this->putJson("/api/cards/{$cardA->id}", ['name' => 'Hacked Name'], $headersB)->assertStatus(404);
+
+        // 4. User B cannot delete Card A
         $this->deleteJson("/api/cards/{$cardA->id}", [], $headersB)->assertStatus(404);
         $this->assertDatabaseHas('cards', ['id' => $cardA->id]);
 
-        // 4. User A can show and list their own card
+        // 5. User A can show and update their own card
         $this->getJson("/api/cards/{$cardA->id}", $headersA)->assertStatus(200)
             ->assertJsonPath('card.name', 'Secret VIP Contact');
+
+        $this->putJson("/api/cards/{$cardA->id}", ['name' => 'Updated VIP Contact'], $headersA)
+            ->assertStatus(200)
+            ->assertJsonPath('card.name', 'Updated VIP Contact');
     }
 
     /**
-     * 11. Workspace Role Authorization: Members cannot delete cards, Owners/Admins can.
+     * 14. Workspace Role Authorization: Members cannot delete cards or modify workspace settings.
      */
-    public function test_role_authorization_for_deletion(): void
+    public function test_role_authorization_enforcement(): void
     {
         $ownerData = $this->createWorkspaceUser('Owner User', 'owner@example.com', 'owner');
         $workspace = $ownerData['workspace'];
@@ -286,6 +416,7 @@ class SecurityFoundationTest extends TestCase
             'name' => 'Member User',
             'email' => 'member@example.com',
             'password' => bcrypt('password123'),
+            'current_workspace_id' => $workspace->id,
         ]);
         $workspace->users()->attach($member->id, ['role' => 'member']);
         $memberToken = $member->createToken('member_token')['plain_token'];
@@ -295,6 +426,7 @@ class SecurityFoundationTest extends TestCase
             'name' => 'Admin User',
             'email' => 'admin@example.com',
             'password' => bcrypt('password123'),
+            'current_workspace_id' => $workspace->id,
         ]);
         $workspace->users()->attach($admin->id, ['role' => 'admin']);
         $adminToken = $admin->createToken('admin_token')['plain_token'];
@@ -309,13 +441,23 @@ class SecurityFoundationTest extends TestCase
         $memberHeaders = ['Authorization' => 'Bearer '.$memberToken];
         $adminHeaders = ['Authorization' => 'Bearer '.$adminToken];
 
-        // 1. Member cannot delete card (403 Forbidden)
+        // 1. Member CANNOT delete card (403 Forbidden)
         $this->deleteJson("/api/cards/{$card->id}", [], $memberHeaders)
             ->assertStatus(403)
             ->assertJson(['success' => false]);
         $this->assertDatabaseHas('cards', ['id' => $card->id]);
 
-        // 2. Admin can delete card (200 OK)
+        // 2. Member CANNOT modify workspace settings (403 Forbidden)
+        $this->putJson("/api/auth/workspaces/{$workspace->id}", ['name' => 'Member Renamed'], $memberHeaders)
+            ->assertStatus(403)
+            ->assertJson(['success' => false]);
+
+        // 3. Admin CAN modify workspace settings (200 OK)
+        $this->putJson("/api/auth/workspaces/{$workspace->id}", ['name' => 'Admin Renamed WS'], $adminHeaders)
+            ->assertStatus(200)
+            ->assertJsonPath('workspace.name', 'Admin Renamed WS');
+
+        // 4. Admin CAN delete card (200 OK)
         $this->deleteJson("/api/cards/{$card->id}", [], $adminHeaders)
             ->assertStatus(200)
             ->assertJson(['success' => true]);
@@ -323,7 +465,7 @@ class SecurityFoundationTest extends TestCase
     }
 
     /**
-     * 12. Image validation strictly rejects invalid MIME types and fake files.
+     * 15. Image validation strictly rejects invalid MIME types and fake files.
      */
     public function test_image_validation_rejects_invalid_files(): void
     {
@@ -344,7 +486,7 @@ class SecurityFoundationTest extends TestCase
     }
 
     /**
-     * 13. Private image storage requires Bearer authentication and rejects query-string tokens.
+     * 16. Private image storage requires Bearer authentication and rejects query-string tokens.
      */
     public function test_private_image_storage_controlled_access_via_bearer_only(): void
     {
@@ -379,7 +521,7 @@ class SecurityFoundationTest extends TestCase
     }
 
     /**
-     * 14. Gemini Configuration is accessible via config() and not directly via env().
+     * 17. Gemini Configuration is accessible via config() and not directly via env().
      */
     public function test_gemini_configuration_is_present_in_services_config(): void
     {

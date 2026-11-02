@@ -3,7 +3,6 @@
 namespace App\Http\Middleware;
 
 use App\Models\ApiToken;
-use App\Models\User;
 use App\Models\Workspace;
 use Closure;
 use Illuminate\Http\Request;
@@ -14,7 +13,7 @@ class AuthenticateApiToken
     /**
      * Handle an incoming request.
      * Tokens are accepted EXCLUSIVELY via the Authorization: Bearer <token> header.
-     * Query string credentials and custom headers are strictly disallowed.
+     * Query string credentials, custom headers, and session fallbacks are strictly disallowed.
      *
      * @param  Closure(Request): (Response)  $next
      */
@@ -34,11 +33,7 @@ class AuthenticateApiToken
             }
         }
 
-        // 2. Fallback to existing framework auth session (e.g. for testing or stateful sessions)
-        if (! $user && auth()->check()) {
-            $user = auth()->user();
-        }
-
+        // Strict Bearer enforcement: No session fallback permitted on API routes
         if (! $user) {
             return response()->json([
                 'success' => false,
@@ -49,8 +44,8 @@ class AuthenticateApiToken
         // Attach user to request
         $request->setUserResolver(fn () => $user);
 
-        // 3. Resolve active workspace
-        $requestedWorkspaceId = $request->header('X-Workspace-Id') ?: $request->input('workspace_id');
+        // 2. Resolve active workspace (honors persistent user selection, with optional header override)
+        $requestedWorkspaceId = $request->header('X-Workspace-Id');
         $workspace = null;
 
         if ($requestedWorkspaceId) {

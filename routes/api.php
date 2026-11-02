@@ -14,6 +14,7 @@ Route::prefix('auth')->group(function () {
         Route::get('/user', [AuthController::class, 'user']);
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::post('/switch-workspace', [AuthController::class, 'switchWorkspace']);
+        Route::put('/workspaces/{id}', [AuthController::class, 'updateWorkspace']);
     });
 });
 
@@ -23,6 +24,7 @@ Route::middleware('api.auth')->group(function () {
     Route::get('/cards', [CardController::class, 'index']);
     Route::post('/cards', [CardController::class, 'store']);
     Route::get('/cards/{id}', [CardController::class, 'show']);
+    Route::put('/cards/{id}', [CardController::class, 'update']);
     Route::delete('/cards/{id}', [CardController::class, 'destroy']);
     Route::get('/cards/{id}/image', [CardController::class, 'image']);
 });

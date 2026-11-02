@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password'])]
+#[Fillable(['name', 'email', 'password', 'current_workspace_id'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -68,6 +68,7 @@ class User extends Authenticatable
 
     /**
      * Get the user's current or selected workspace.
+     * Respects persisted current_workspace_id.
      */
     public function currentWorkspace(?int $workspaceId = null): ?Workspace
     {
@@ -75,7 +76,35 @@ class User extends Authenticatable
             return $this->workspaces()->where('workspaces.id', $workspaceId)->first();
         }
 
-        return $this->workspaces()->first();
+        if ($this->current_workspace_id) {
+            $workspace = $this->workspaces()->where('workspaces.id', $this->current_workspace_id)->first();
+            if ($workspace) {
+                return $workspace;
+            }
+        }
+
+        $first = $this->workspaces()->first();
+        if ($first && ! $this->current_workspace_id) {
+            $this->forceFill(['current_workspace_id' => $first->id])->saveQuietly();
+        }
+
+        return $first;
+    }
+
+    /**
+     * Switch and persist current workspace after validating membership.
+     */
+    public function switchWorkspace(int|Workspace $workspace): bool
+    {
+        $workspaceId = $workspace instanceof Workspace ? $workspace->id : $workspace;
+
+        if (! $this->workspaces()->where('workspaces.id', $workspaceId)->exists()) {
+            return false;
+        }
+
+        $this->forceFill(['current_workspace_id' => $workspaceId])->save();
+
+        return true;
     }
 
     /**

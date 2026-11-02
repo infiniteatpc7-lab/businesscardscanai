@@ -510,6 +510,54 @@ EOT;
     }
 
     /**
+     * Update the specified card scoped to the user's workspace.
+     */
+    public function update(Request $request, int $id): JsonResponse
+    {
+        /** @var Workspace $workspace */
+        $workspace = $request->attributes->get('workspace');
+
+        $card = Card::forWorkspace($workspace->id)->find($id);
+
+        if (! $card) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Card not found',
+            ], 404);
+        }
+
+        $validated = $request->validate([
+            'company' => 'nullable|string|max:255',
+            'company_english' => 'nullable|string|max:255',
+            'name' => 'nullable|string|max:255',
+            'name_english' => 'nullable|string|max:255',
+            'designation' => 'nullable|string|max:255',
+            'department' => 'nullable|string|max:255',
+            'phone' => 'nullable|array',
+            'email' => 'nullable|string|max:255',
+            'website' => 'nullable|string|max:255',
+            'address' => 'nullable|string',
+            'address_english' => 'nullable|string',
+            'tagline_services' => 'nullable|string',
+            'tax_id' => 'nullable|string|max:100',
+            'social_profiles' => 'nullable|array',
+            'accuracy_score' => 'nullable|integer|min:0|max:100',
+            'accuracy_reason' => 'nullable|string',
+            'detected_language' => 'nullable|string|max:100',
+            'image_path' => 'nullable|string|max:500',
+            'raw_data' => 'nullable|array',
+        ]);
+
+        $card->update($validated);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Card updated successfully.',
+            'card' => $card,
+        ]);
+    }
+
+    /**
      * Remove the specified card with workspace and role authorization.
      * Only Workspace Owners and Admins are permitted to delete cards.
      */

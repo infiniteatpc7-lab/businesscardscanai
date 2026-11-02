@@ -43,6 +43,7 @@ class AuthController extends Controller
             ]);
 
             $workspace->users()->attach($user->id, ['role' => 'owner']);
+            $user->forceFill(['current_workspace_id' => $workspace->id])->save();
 
             $tokenData = $user->createToken('register_token');
 
@@ -166,7 +167,7 @@ class AuthController extends Controller
     }
 
     /**
-     * Switch current active workspace.
+     * Switch current active workspace and persist selection.
      */
     public function switchWorkspace(Request $request): JsonResponse
     {
@@ -175,7 +176,35 @@ class AuthController extends Controller
         ]);
 
         $user = $request->user();
-        $workspace = Workspace::find($validated['workspace_id']);
+
+        if (! $user->switchWorkspace($validated['workspace_id'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You do not have access to this workspace.',
+            ], 403);
+        }
+
+        $workspace = $user->currentWorkspace();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Workspace switched successfully.',
+            'current_workspace' => [
+                'id' => $workspace->id,
+                'name' => $workspace->name,
+                'slug' => $workspace->slug,
+                'role' => $workspace->getUserRole($user),
+            ],
+        ]);
+    }
+
+    /**
+     * Update workspace settings (Owner/Admin only).
+     */
+    public function updateWorkspace(Request $request, int $id): JsonResponse
+    {
+        $user = $request->user();
+        $workspace = Workspace::find($id);
 
         if (! $workspace || ! $workspace->hasUser($user)) {
             return response()->json([
@@ -184,10 +213,23 @@ class AuthController extends Controller
             ], 403);
         }
 
+        if (! $workspace->isAdmin($user)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Only workspace owners and admins can modify workspace settings.',
+            ], 403);
+        }
+
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+        ]);
+
+        $workspace->update(['name' => $validated['name']]);
+
         return response()->json([
             'success' => true,
-            'message' => 'Workspace switched successfully.',
-            'current_workspace' => [
+            'message' => 'Workspace updated successfully.',
+            'workspace' => [
                 'id' => $workspace->id,
                 'name' => $workspace->name,
                 'slug' => $workspace->slug,
