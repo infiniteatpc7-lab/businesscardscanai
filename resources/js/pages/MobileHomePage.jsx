@@ -34,9 +34,11 @@ export default function MobileHomePage({
                     loop
                     muted
                     playsInline
+                    controls={false}
                     disablePictureInPicture
-                    controlsList="nodownload nofullscreen noremoteplayback"
+                    disableRemotePlayback
                     className="w-full h-auto aspect-[16/7] object-cover block select-none pointer-events-none"
+                    style={{ WebkitMediaControls: 'none' }}
                 />
             </div>
 

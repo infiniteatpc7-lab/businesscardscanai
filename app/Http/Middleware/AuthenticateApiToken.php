@@ -61,6 +61,11 @@ class AuthenticateApiToken
         }
 
         if (! $workspace) {
+            // For invitation acceptance route, an invited user might not have a workspace yet
+            if ($request->is('api/invitations/*/accept')) {
+                return $next($request);
+            }
+
             return response()->json([
                 'success' => false,
                 'message' => 'User does not belong to any active workspace.',

@@ -7,7 +7,7 @@ import MobileScannerView from './pages/MobileScannerView';
 import MobileProfilePage from './pages/MobileProfilePage';
 import AuthModal from './components/auth/AuthModal';
 import { ToastProvider, useToast } from './context/ToastContext';
-import { fetchCards, fetchAuthUser, logoutUser, getStoredToken } from './services/cardApi';
+import { fetchCards, fetchAuthUser, logoutUser, getStoredToken, fetchWorkspaces, acceptInvitation } from './services/cardApi';
 
 function MobileAppContent() {
     const { showToast } = useToast();
@@ -18,6 +18,7 @@ function MobileAppContent() {
     // Authentication state
     const [authUser, setAuthUser] = useState(null);
     const [authWorkspace, setAuthWorkspace] = useState(null);
+    const [workspacesList, setWorkspacesList] = useState([]);
     const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
     // Fetch cards from backend API
@@ -36,6 +37,18 @@ function MobileAppContent() {
         }
     };
 
+    // Load all user workspaces
+    const loadWorkspaces = async () => {
+        try {
+            const res = await fetchWorkspaces();
+            if (res.success && Array.isArray(res.workspaces)) {
+                setWorkspacesList(res.workspaces);
+            }
+        } catch (err) {
+            console.error('Failed to load workspaces list:', err);
+        }
+    };
+
     // Verify authentication on mount
     const checkAuthStatus = async () => {
         const token = getStoredToken();
@@ -50,6 +63,8 @@ function MobileAppContent() {
                 setAuthUser(res.user);
                 setAuthWorkspace(res.current_workspace);
                 loadCards();
+                loadWorkspaces();
+                checkPendingInvite();
             } else {
                 setAuthUser(null);
                 setAuthWorkspace(null);
@@ -57,6 +72,29 @@ function MobileAppContent() {
             }
         } catch {
             setIsAuthModalOpen(true);
+        }
+    };
+
+    // Check if there is an invitation token in the URL (/invitations/{token})
+    const checkPendingInvite = async () => {
+        const path = window.location.pathname;
+        const match = path.match(/\/invitations\/([a-zA-Z0-9_-]+)/);
+        if (match && match[1]) {
+            const inviteToken = match[1];
+            try {
+                const res = await acceptInvitation(inviteToken);
+                if (res.success && res.workspace) {
+                    showToast(res.message || `Joined ${res.workspace.name}!`, 'success');
+                    setAuthWorkspace(res.workspace);
+                    loadWorkspaces();
+                    loadCards();
+                    window.history.replaceState({}, document.title, '/');
+                } else {
+                    showToast(res.message || 'Could not accept invitation.', 'error');
+                }
+            } catch (err) {
+                console.error('Accept invite error:', err);
+            }
         }
     };
 
@@ -80,7 +118,15 @@ function MobileAppContent() {
         setAuthWorkspace(data.workspace);
         setIsAuthModalOpen(false);
         loadCards();
+        loadWorkspaces();
+        checkPendingInvite();
         showToast(`Welcome back, ${data.user.name}!`);
+    };
+
+    const handleWorkspaceChanged = (newWs) => {
+        setAuthWorkspace(newWs);
+        loadCards();
+        loadWorkspaces();
     };
 
     const handleLogout = async () => {
@@ -198,6 +244,8 @@ function MobileAppContent() {
                                 onExportCSV={handleExportCSV}
                                 user={authUser}
                                 workspace={authWorkspace}
+                                workspaces={workspacesList}
+                                onWorkspaceChanged={handleWorkspaceChanged}
                                 onLogout={handleLogout}
                             />
                         )}

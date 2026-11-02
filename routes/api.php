@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CardController;
+use App\Http\Controllers\WorkspaceController;
 use Illuminate\Support\Facades\Route;
 
 // Authentication routes (Public with rate limiting to prevent brute-force and resource abuse)
@@ -18,9 +19,22 @@ Route::prefix('auth')->group(function () {
     });
 });
 
+// Workspace Management & Invitations
+Route::middleware('api.auth')->group(function () {
+    Route::get('/workspaces', [WorkspaceController::class, 'index']);
+    Route::post('/workspaces', [WorkspaceController::class, 'store']);
+    Route::get('/workspaces/{id}/members', [WorkspaceController::class, 'members']);
+    Route::post('/workspaces/{id}/invitations', [WorkspaceController::class, 'invite']);
+    Route::post('/workspaces/{id}/invitations/{invitationId}/resend', [WorkspaceController::class, 'resendInvitation']);
+    Route::delete('/workspaces/{id}/invitations/{invitationId}', [WorkspaceController::class, 'revokeInvitation']);
+    Route::patch('/workspaces/{id}/members/{userId}', [WorkspaceController::class, 'updateMemberRole']);
+    Route::delete('/workspaces/{id}/members/{userId}', [WorkspaceController::class, 'removeMember']);
+    Route::post('/invitations/{token}/accept', [WorkspaceController::class, 'acceptInvitation']);
+});
+
 // Protected Business Card & AI Scanning Routes
 Route::middleware('api.auth')->group(function () {
-    Route::post('/scan', [CardController::class, 'scan']);
+    Route::post('/scan', [CardController::class, 'scan'])->middleware('throttle:20,1');
     Route::get('/cards', [CardController::class, 'index']);
     Route::post('/cards', [CardController::class, 'store']);
     Route::get('/cards/{id}', [CardController::class, 'show']);

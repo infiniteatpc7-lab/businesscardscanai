@@ -14,11 +14,15 @@ import {
     Globe,
     ChevronRight,
     Languages,
-    ExternalLink
+    ExternalLink,
+    Pencil,
+    Save,
+    RotateCcw
 } from 'lucide-react';
 import SwipeableCardItem from '../components/cards/SwipeableCardItem';
+import CardFormEditor from '../components/scanner/CardFormEditor';
 import { downloadVCard, openWhatsApp, isLandlineNumber, initiatePhoneCall } from '../services/vcfHelper';
-import { deleteCard, saveCard, getCardImageUrl, fetchCardImageBlob } from '../services/cardApi';
+import { deleteCard, saveCard, updateCard, getCardImageUrl, fetchCardImageBlob } from '../services/cardApi';
 import { useToast } from '../context/ToastContext';
 
 export default function MobileCardsPage({
@@ -35,12 +39,74 @@ export default function MobileCardsPage({
     const [selectedCard, setSelectedCard] = useState(initialSelectedCard);
     const [cardImageBlobUrl, setCardImageBlobUrl] = useState(null);
 
+    // Edit mode states
+    const [isEditing, setIsEditing] = useState(false);
+    const [editFormData, setEditFormData] = useState(null);
+    const [isSaving, setIsSaving] = useState(false);
+
     useEffect(() => {
         if (initialSelectedCard) {
             setSelectedCard(initialSelectedCard);
+            setIsEditing(false);
+            setEditFormData(null);
             onClearSelectedCard?.();
         }
     }, [initialSelectedCard]);
+
+    const startEditing = () => {
+        if (!selectedCard) return;
+        setEditFormData({
+            company: selectedCard.company || '',
+            company_english: selectedCard.company_english || '',
+            name: selectedCard.name || '',
+            name_english: selectedCard.name_english || '',
+            designation: selectedCard.designation || '',
+            department: selectedCard.department || '',
+            phone: Array.isArray(selectedCard.phone) ? [...selectedCard.phone] : (selectedCard.phone ? [selectedCard.phone] : []),
+            email: selectedCard.email || '',
+            website: selectedCard.website || '',
+            address: selectedCard.address || '',
+            address_english: selectedCard.address_english || '',
+            tagline_services: selectedCard.tagline_services || '',
+            tax_id: selectedCard.tax_id || '',
+            social_profiles: Array.isArray(selectedCard.social_profiles) ? [...selectedCard.social_profiles] : [],
+        });
+        setIsEditing(true);
+    };
+
+    const cancelEditing = () => {
+        setIsEditing(false);
+        setEditFormData(null);
+    };
+
+    const handleEditFieldChange = (field, value) => {
+        setEditFormData((prev) => ({
+            ...prev,
+            [field]: value,
+        }));
+    };
+
+    const saveEditChanges = async () => {
+        if (!selectedCard || !editFormData) return;
+        setIsSaving(true);
+        try {
+            const res = await updateCard(selectedCard.id, editFormData);
+            if (res.success && res.card) {
+                setSelectedCard(res.card);
+                setIsEditing(false);
+                setEditFormData(null);
+                showToast('Card updated successfully!', 'success');
+                onRefresh?.();
+            } else {
+                showToast(res.message || 'Failed to update card', 'error');
+            }
+        } catch (err) {
+            console.error('Update card error:', err);
+            showToast('Network error while updating card', 'error');
+        } finally {
+            setIsSaving(false);
+        }
+    };
 
     useEffect(() => {
         let active = true;
@@ -311,172 +377,226 @@ export default function MobileCardsPage({
                                     </p>
                                 )}
                             </div>
-                            <button
-                                onClick={() => setSelectedCard(null)}
-                                className="w-8 h-8 rounded-full bg-zinc-100 hover:bg-zinc-200 flex items-center justify-center text-zinc-500 shrink-0 transition-colors active:scale-95"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
-                        </div>
-
-                        {/* Card Image Preview if available */}
-                        {(cardImageBlobUrl || getCardImageUrl(selectedCard) || selectedCard.image_path) && (
-                            <div className="rounded-2xl overflow-hidden border border-zinc-200 bg-zinc-900 shadow-inner">
-                                <img
-                                    src={cardImageBlobUrl || getCardImageUrl(selectedCard) || selectedCard.image_path}
-                                    alt="Scanned Card"
-                                    className="w-full max-h-48 object-contain mx-auto"
-                                />
-                            </div>
-                        )}
-
-                        {/* Language Tag */}
-                        {selectedCard.detected_language && (
-                            <div className="flex items-center gap-2">
-                                <span className="text-[10px] uppercase font-mono font-bold text-zinc-600 px-2.5 py-0.5 rounded-full bg-zinc-100">
-                                    {selectedCard.detected_language}
-                                </span>
-                            </div>
-                        )}
-
-                        {/* Details Fields */}
-                        <div className="space-y-2 text-xs">
-                            {selectedCard.name && (
-                                <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60">
-                                    <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-0.5">Contact Person</span>
-                                    <span className="font-bold text-zinc-950 font-gujarati text-sm">{selectedCard.name}</span>
-                                    {selectedCard.designation && (
-                                        <span className="text-zinc-500 ml-1.5 text-xs">({selectedCard.designation})</span>
-                                    )}
-                                </div>
-                            )}
-
-                            {Array.isArray(selectedCard.phone) && selectedCard.phone.length > 0 && (
-                                <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60 space-y-2">
-                                    <span className="text-[10px] uppercase font-bold text-zinc-400 block">Phone Numbers</span>
-                                    <div className="space-y-1.5">
-                                        {selectedCard.phone.map((ph, idx) => {
-                                            const isPhoneLandline = isLandlineNumber(ph);
-                                            return (
-                                                <div key={idx} className="flex items-center justify-between gap-2 p-1.5 rounded-xl bg-white border border-zinc-200">
-                                                    <span className="font-mono font-bold text-xs text-zinc-950 pl-1">{ph}</span>
-                                                    <div className="flex items-center gap-1">
-                                                        <a
-                                                            href={`tel:${ph}`}
-                                                            className="px-2 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-[11px] font-semibold flex items-center gap-1"
-                                                        >
-                                                            <Phone className="w-3 h-3" />
-                                                            <span>Call</span>
-                                                        </a>
-                                                        {!isPhoneLandline && (
-                                                            <button
-                                                                onClick={() => openWhatsApp(ph, selectedCard)}
-                                                                className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-semibold flex items-center gap-1"
-                                                            >
-                                                                <MessageCircle className="w-3 h-3" />
-                                                                <span>WhatsApp</span>
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            )}
-
-                            {selectedCard.email && (
-                                <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60 flex items-center justify-between">
-                                    <div>
-                                        <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-0.5">Email</span>
-                                        <a href={`mailto:${selectedCard.email}`} className="font-mono text-zinc-900 font-semibold underline">
-                                            {selectedCard.email}
-                                        </a>
-                                    </div>
-                                    <Mail className="w-4 h-4 text-zinc-400" />
-                                </div>
-                            )}
-
-                            {selectedCard.website && (
-                                <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60 flex items-center justify-between">
-                                    <div>
-                                        <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-0.5">Website</span>
-                                        <a
-                                            href={selectedCard.website.startsWith('http') ? selectedCard.website : `https://${selectedCard.website}`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="font-mono text-blue-600 font-semibold flex items-center gap-1"
-                                        >
-                                            <span>{selectedCard.website}</span>
-                                            <ExternalLink className="w-3 h-3" />
-                                        </a>
-                                    </div>
-                                    <Globe className="w-4 h-4 text-zinc-400" />
-                                </div>
-                            )}
-
-                            {selectedCard.address && (
-                                <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60 space-y-1">
-                                    <span className="text-[10px] uppercase font-bold text-zinc-400 block">Postal Address</span>
-                                    <p className="font-gujarati text-zinc-900 text-xs leading-relaxed">{selectedCard.address}</p>
-                                    {selectedCard.address_english && selectedCard.address_english !== selectedCard.address && (
-                                        <p className="text-zinc-500 text-[11px]">{selectedCard.address_english}</p>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* 1-Tap Action Pills */}
-                        <div className="grid grid-cols-2 gap-2 pt-1">
-                            <button
-                                onClick={() => {
-                                    downloadVCard(selectedCard);
-                                    showToast('vCard downloaded for phone contacts');
-                                }}
-                                className="py-3 px-3 rounded-2xl bg-zinc-100 hover:bg-zinc-200 text-zinc-900 text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5"
-                            >
-                                <UserPlus className="w-4 h-4" />
-                                <span>Save to Contacts</span>
-                            </button>
-
-                            {Array.isArray(selectedCard.phone) && selectedCard.phone[0] && (
-                                isLandlineNumber(selectedCard.phone[0]) ? (
-                                    <a
-                                        href={`tel:${selectedCard.phone[0]}`}
-                                        className="py-3 px-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
-                                    >
-                                        <Phone className="w-4 h-4" />
-                                        <span>Call Office</span>
-                                    </a>
-                                ) : (
+                            <div className="flex items-center gap-1.5 shrink-0">
+                                {!isEditing && (
                                     <button
-                                        onClick={() => openWhatsApp(selectedCard.phone[0], selectedCard)}
-                                        className="py-3 px-3 rounded-2xl bg-[#0F9D58] hover:bg-[#0b8043] text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                                        onClick={startEditing}
+                                        className="w-8 h-8 rounded-full bg-zinc-100 hover:bg-zinc-200 flex items-center justify-center text-zinc-700 transition-colors active:scale-95"
+                                        title="Edit Card Details"
                                     >
-                                        <MessageCircle className="w-4 h-4" />
-                                        <span>WhatsApp</span>
+                                        <Pencil className="w-3.5 h-3.5" />
                                     </button>
-                                )
-                            )}
+                                )}
+                                <button
+                                    onClick={() => {
+                                        setIsEditing(false);
+                                        setSelectedCard(null);
+                                    }}
+                                    className="w-8 h-8 rounded-full bg-zinc-100 hover:bg-zinc-200 flex items-center justify-center text-zinc-500 transition-colors active:scale-95"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
                         </div>
 
-                        {/* Delete Action & Close in Modal */}
-                        <div className="pt-2 border-t border-zinc-100 flex items-center justify-between text-xs">
-                            <button
-                                onClick={() => handleDelete(selectedCard.id, selectedCard)}
-                                className="text-rose-600 font-semibold hover:underline flex items-center gap-1 py-1 px-2 -ml-2 rounded-lg hover:bg-rose-50"
-                            >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                <span>Delete Card</span>
-                            </button>
+                        {isEditing ? (
+                            /* Card Edit Mode with CardFormEditor */
+                            <div className="space-y-4 pt-1">
+                                <div className="flex items-center justify-between pb-2 border-b border-zinc-100">
+                                    <span className="text-xs font-bold text-zinc-700 uppercase tracking-wider">
+                                        Editing Contact Details
+                                    </span>
+                                    <span className="text-[11px] text-zinc-400">Save to update workspace</span>
+                                </div>
 
-                            <button
-                                onClick={() => setSelectedCard(null)}
-                                className="px-5 py-2 rounded-xl bg-black text-white text-xs font-bold active:scale-95 transition-all"
-                            >
-                                Done
-                            </button>
-                        </div>
+                                <CardFormEditor
+                                    cardData={editFormData}
+                                    onChange={handleEditFieldChange}
+                                />
+
+                                <div className="flex items-center gap-2 pt-2 border-t border-zinc-100">
+                                    <button
+                                        type="button"
+                                        onClick={cancelEditing}
+                                        disabled={isSaving}
+                                        className="flex-1 py-2.5 rounded-xl border border-zinc-200 text-zinc-700 font-bold text-xs hover:bg-zinc-50 active:scale-95 transition-all"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={saveEditChanges}
+                                        disabled={isSaving}
+                                        className="flex-1 py-2.5 rounded-xl bg-black text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all disabled:opacity-50"
+                                    >
+                                        <Save className="w-3.5 h-3.5" />
+                                        <span>{isSaving ? 'Saving...' : 'Save Changes'}</span>
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            /* Normal View Mode */
+                            <>
+                                {/* Card Image Preview if available */}
+                                {(cardImageBlobUrl || getCardImageUrl(selectedCard) || selectedCard.image_path) && (
+                                    <div className="rounded-2xl overflow-hidden border border-zinc-200 bg-zinc-900 shadow-inner">
+                                        <img
+                                            src={cardImageBlobUrl || getCardImageUrl(selectedCard) || selectedCard.image_path}
+                                            alt="Scanned Card"
+                                            className="w-full max-h-48 object-contain mx-auto"
+                                        />
+                                    </div>
+                                )}
+
+                                {/* Language Tag */}
+                                {selectedCard.detected_language && (
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] uppercase font-mono font-bold text-zinc-600 px-2.5 py-0.5 rounded-full bg-zinc-100">
+                                            {selectedCard.detected_language}
+                                        </span>
+                                    </div>
+                                )}
+
+                                {/* Details Fields */}
+                                <div className="space-y-2 text-xs">
+                                    {selectedCard.name && (
+                                        <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60">
+                                            <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-0.5">Contact Person</span>
+                                            <span className="font-bold text-zinc-950 font-gujarati text-sm">{selectedCard.name}</span>
+                                            {selectedCard.designation && (
+                                                <span className="text-zinc-500 ml-1.5 text-xs">({selectedCard.designation})</span>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {Array.isArray(selectedCard.phone) && selectedCard.phone.length > 0 && (
+                                        <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60 space-y-2">
+                                            <span className="text-[10px] uppercase font-bold text-zinc-400 block">Phone Numbers</span>
+                                            <div className="space-y-1.5">
+                                                {selectedCard.phone.map((ph, idx) => {
+                                                    const isPhoneLandline = isLandlineNumber(ph);
+                                                    return (
+                                                        <div key={idx} className="flex items-center justify-between gap-2 p-1.5 rounded-xl bg-white border border-zinc-200">
+                                                            <span className="font-mono font-bold text-xs text-zinc-950 pl-1">{ph}</span>
+                                                            <div className="flex items-center gap-1">
+                                                                <a
+                                                                    href={`tel:${ph}`}
+                                                                    className="px-2 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-[11px] font-semibold flex items-center gap-1"
+                                                                >
+                                                                    <Phone className="w-3 h-3" />
+                                                                    <span>Call</span>
+                                                                </a>
+                                                                {!isPhoneLandline && (
+                                                                    <button
+                                                                        onClick={() => openWhatsApp(ph, selectedCard)}
+                                                                        className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-semibold flex items-center gap-1"
+                                                                    >
+                                                                        <MessageCircle className="w-3 h-3" />
+                                                                        <span>WhatsApp</span>
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {selectedCard.email && (
+                                        <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60 flex items-center justify-between">
+                                            <div>
+                                                <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-0.5">Email</span>
+                                                <a href={`mailto:${selectedCard.email}`} className="font-mono text-zinc-900 font-semibold underline">
+                                                    {selectedCard.email}
+                                                </a>
+                                            </div>
+                                            <Mail className="w-4 h-4 text-zinc-400" />
+                                        </div>
+                                    )}
+
+                                    {selectedCard.website && (
+                                        <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60 flex items-center justify-between">
+                                            <div>
+                                                <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-0.5">Website</span>
+                                                <a
+                                                    href={selectedCard.website.startsWith('http') ? selectedCard.website : `https://${selectedCard.website}`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="font-mono text-blue-600 font-semibold flex items-center gap-1"
+                                                >
+                                                    <span>{selectedCard.website}</span>
+                                                    <ExternalLink className="w-3 h-3" />
+                                                </a>
+                                            </div>
+                                            <Globe className="w-4 h-4 text-zinc-400" />
+                                        </div>
+                                    )}
+
+                                    {selectedCard.address && (
+                                        <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60 space-y-1">
+                                            <span className="text-[10px] uppercase font-bold text-zinc-400 block">Postal Address</span>
+                                            <p className="font-gujarati text-zinc-900 text-xs leading-relaxed">{selectedCard.address}</p>
+                                            {selectedCard.address_english && selectedCard.address_english !== selectedCard.address && (
+                                                <p className="text-zinc-500 text-[11px]">{selectedCard.address_english}</p>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* 1-Tap Action Pills */}
+                                <div className="grid grid-cols-2 gap-2 pt-1">
+                                    <button
+                                        onClick={() => {
+                                            downloadVCard(selectedCard);
+                                            showToast('vCard downloaded for phone contacts');
+                                        }}
+                                        className="py-3 px-3 rounded-2xl bg-zinc-100 hover:bg-zinc-200 text-zinc-900 text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                                    >
+                                        <UserPlus className="w-4 h-4" />
+                                        <span>Save to Contacts</span>
+                                    </button>
+
+                                    {Array.isArray(selectedCard.phone) && selectedCard.phone[0] && (
+                                        isLandlineNumber(selectedCard.phone[0]) ? (
+                                            <a
+                                                href={`tel:${selectedCard.phone[0]}`}
+                                                className="py-3 px-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                                            >
+                                                <Phone className="w-4 h-4" />
+                                                <span>Call Office</span>
+                                            </a>
+                                        ) : (
+                                            <button
+                                                onClick={() => openWhatsApp(selectedCard.phone[0], selectedCard)}
+                                                className="py-3 px-3 rounded-2xl bg-[#0F9D58] hover:bg-[#0b8043] text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                                            >
+                                                <MessageCircle className="w-4 h-4" />
+                                                <span>WhatsApp</span>
+                                            </button>
+                                        )
+                                    )}
+                                </div>
+
+                                {/* Delete Action & Close in Modal */}
+                                <div className="pt-2 border-t border-zinc-100 flex items-center justify-between text-xs">
+                                    <button
+                                        onClick={() => handleDelete(selectedCard.id, selectedCard)}
+                                        className="text-rose-600 font-semibold hover:underline flex items-center gap-1 py-1 px-2 -ml-2 rounded-lg hover:bg-rose-50"
+                                    >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        <span>Delete Card</span>
+                                    </button>
+
+                                    <button
+                                        onClick={() => setSelectedCard(null)}
+                                        className="px-5 py-2 rounded-xl bg-black text-white text-xs font-bold active:scale-95 transition-all"
+                                    >
+                                        Done
+                                    </button>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>,
                 document.body

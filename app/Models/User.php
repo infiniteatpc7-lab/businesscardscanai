@@ -121,4 +121,12 @@ class User extends Authenticatable
 
         return in_array($role, $roles, true);
     }
+
+    /**
+     * Invitations sent by this user.
+     */
+    public function sentInvitations(): HasMany
+    {
+        return $this->hasMany(WorkspaceInvitation::class, 'inviter_id');
+    }
 }

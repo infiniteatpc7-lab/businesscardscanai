@@ -104,11 +104,117 @@ export async function saveCard(cardData) {
 }
 
 /**
+ * Update an existing card (PUT /api/cards/{id}).
+ */
+export async function updateCard(id, cardData) {
+    const response = await authFetch(`/api/cards/${id}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(cardData),
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    return {
+        ...data,
+        status: response.status,
+        ok: response.ok,
+    };
+}
+
+/**
  * Delete a card (workspace owners & admins).
  */
 export async function deleteCard(id) {
     const response = await authFetch(`/api/cards/${id}`, {
         method: 'DELETE',
+    });
+    return response.json();
+}
+
+/**
+ * Workspace APIs
+ */
+export async function fetchWorkspaces() {
+    const response = await authFetch('/api/workspaces');
+    return response.json();
+}
+
+export async function createWorkspace(name) {
+    const response = await authFetch('/api/workspaces', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name }),
+    });
+    return response.json();
+}
+
+export async function switchWorkspace(workspaceId) {
+    const response = await authFetch('/api/auth/switch-workspace', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ workspace_id: workspaceId }),
+    });
+    return response.json();
+}
+
+export async function fetchWorkspaceMembers(workspaceId) {
+    const response = await authFetch(`/api/workspaces/${workspaceId}/members`);
+    return response.json();
+}
+
+export async function inviteWorkspaceMember(workspaceId, email, role) {
+    const response = await authFetch(`/api/workspaces/${workspaceId}/invitations`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, role }),
+    });
+    return response.json();
+}
+
+export async function resendInvitation(workspaceId, invitationId) {
+    const response = await authFetch(`/api/workspaces/${workspaceId}/invitations/${invitationId}/resend`, {
+        method: 'POST',
+    });
+    return response.json();
+}
+
+export async function revokeInvitation(workspaceId, invitationId) {
+    const response = await authFetch(`/api/workspaces/${workspaceId}/invitations/${invitationId}`, {
+        method: 'DELETE',
+    });
+    return response.json();
+}
+
+export async function updateMemberRole(workspaceId, userId, role) {
+    const response = await authFetch(`/api/workspaces/${workspaceId}/members/${userId}`, {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ role }),
+    });
+    return response.json();
+}
+
+export async function removeMember(workspaceId, userId) {
+    const response = await authFetch(`/api/workspaces/${workspaceId}/members/${userId}`, {
+        method: 'DELETE',
+    });
+    return response.json();
+}
+
+export async function acceptInvitation(token) {
+    const response = await authFetch(`/api/invitations/${encodeURIComponent(token)}/accept`, {
+        method: 'POST',
     });
     return response.json();
 }

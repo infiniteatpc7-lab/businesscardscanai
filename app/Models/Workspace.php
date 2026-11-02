@@ -82,6 +82,70 @@ class Workspace extends Model
     }
 
     /**
+     * Get all invitations for this workspace.
+     */
+    public function invitations(): HasMany
+    {
+        return $this->hasMany(WorkspaceInvitation::class);
+    }
+
+    /**
+     * Check if a user is the sole owner of this workspace.
+     */
+    public function isSoleOwner(User|int $user): bool
+    {
+        $userId = $user instanceof User ? $user->id : $user;
+
+        if (! $this->isOwner($userId)) {
+            return false;
+        }
+
+        // Count how many users have owner role in pivot or are owner_id
+        $ownerCount = $this->users()
+            ->wherePivot('role', 'owner')
+            ->count();
+
+        // If owner_id is set and not already in pivot as owner, ensure count accounts for it
+        if ($this->owner_id && ! $this->users()->wherePivot('role', 'owner')->where('users.id', $this->owner_id)->exists()) {
+            $ownerCount++;
+        }
+
+        return $ownerCount <= 1;
+    }
+
+    /**
+     * Determine if an actor role can invite a target role.
+     */
+    public static function canInviteRole(string $actorRole, string $targetRole): bool
+    {
+        if ($actorRole === 'owner') {
+            return in_array($targetRole, ['admin', 'member'], true);
+        }
+
+        if ($actorRole === 'admin') {
+            return $targetRole === 'member';
+        }
+
+        return false;
+    }
+
+    /**
+     * Determine if an actor role can manage (change role or remove) a target role.
+     */
+    public static function canManageRole(string $actorRole, string $targetRole): bool
+    {
+        if ($actorRole === 'owner') {
+            return in_array($targetRole, ['admin', 'member'], true);
+        }
+
+        if ($actorRole === 'admin') {
+            return $targetRole === 'member';
+        }
+
+        return false;
+    }
+
+    /**
      * Check if user is a member of the workspace.
      */
     public function hasUser(User|int $user): bool
