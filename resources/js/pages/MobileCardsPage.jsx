@@ -9,10 +9,9 @@ import {
     MessageCircle,
     UserPlus,
     X,
-    Sparkles,
-    Check
+    ChevronRight,
+    Languages
 } from 'lucide-react';
-import { AccuracyBadge } from '../components/common/Badge';
 import { downloadVCard, openWhatsApp } from '../services/vcfHelper';
 import { deleteCard } from '../services/cardApi';
 import { useToast } from '../context/ToastContext';
@@ -159,7 +158,7 @@ export default function MobileCardsPage({
                                 onClick={() => setSelectedCard(card)}
                                 className="bg-white rounded-3xl p-4 shadow-behance border border-black/[0.04] hover:shadow-behance-lg transition-all space-y-3 cursor-pointer active:scale-[0.99]"
                             >
-                                {/* Card Top: Company & Accuracy */}
+                                {/* Card Top: Company & Language */}
                                 <div className="flex items-start justify-between gap-2">
                                     <div className="space-y-0.5 min-w-0">
                                         <h3 className="font-gujarati font-extrabold text-sm text-zinc-950 truncate">
@@ -171,8 +170,8 @@ export default function MobileCardsPage({
                                             </p>
                                         )}
                                     </div>
-                                    <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-bold shrink-0">
-                                        {card.accuracy_score || 95}%
+                                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider shrink-0">
+                                        {card.detected_language || 'Card'}
                                     </span>
                                 </div>
 
@@ -283,10 +282,9 @@ export default function MobileCardsPage({
                             </div>
                         )}
 
-                        {/* Accuracy badge & language */}
-                        <div className="flex items-center gap-2.5">
-                            <AccuracyBadge score={selectedCard.accuracy_score} />
-                            <span className="text-[10px] uppercase font-bold text-zinc-400">
+                        {/* Language Tag */}
+                        <div className="flex items-center gap-2">
+                            <span className="text-[10px] uppercase font-bold text-zinc-500 px-2.5 py-0.5 rounded-full bg-zinc-100">
                                 {selectedCard.detected_language || 'Gujarati'}
                             </span>
                         </div>
@@ -325,13 +323,6 @@ export default function MobileCardsPage({
                                     {selectedCard.address_english && (
                                         <p className="text-zinc-500 text-[11px]">{selectedCard.address_english}</p>
                                     )}
-                                </div>
-                            )}
-
-                            {selectedCard.accuracy_reason && (
-                                <div className="p-3 rounded-2xl bg-emerald-50/60 border border-emerald-200/60 text-emerald-900 text-[11px] leading-relaxed">
-                                    <span className="font-bold text-emerald-800">OCR Breakdown: </span>
-                                    <span>{selectedCard.accuracy_reason}</span>
                                 </div>
                             )}
                         </div>

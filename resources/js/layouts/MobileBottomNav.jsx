@@ -18,7 +18,7 @@ export default function MobileBottomNav({
                     {/* Tab 1: Home */}
                     <button
                         onClick={() => onTabChange('home')}
-                        className={`flex-1 flex flex-col items-center justify-center py-2 rounded-2xl transition-all active:scale-95 ${
+                        className={`flex-1 flex flex-col items-center justify-center py-2.5 rounded-2xl transition-all active:scale-95 ${
                             activeTab === 'home'
                                 ? 'text-zinc-950 font-bold'
                                 : 'text-zinc-400 hover:text-zinc-700 font-medium'
@@ -28,10 +28,10 @@ export default function MobileBottomNav({
                         <span className="text-[10px] mt-1 tracking-tight">Home</span>
                     </button>
 
-                    {/* Tab 2: All Cards */}
+                    {/* Tab 2: Cards */}
                     <button
                         onClick={() => onTabChange('cards')}
-                        className={`flex-1 flex flex-col items-center justify-center py-2 rounded-2xl transition-all active:scale-95 relative ${
+                        className={`flex-1 flex flex-col items-center justify-center py-2.5 rounded-2xl transition-all active:scale-95 relative ${
                             activeTab === 'cards'
                                 ? 'text-zinc-950 font-bold'
                                 : 'text-zinc-400 hover:text-zinc-700 font-medium'
@@ -46,23 +46,23 @@ export default function MobileBottomNav({
                         )}
                     </button>
 
-                    {/* Center: Prominent Elevated Scan Button */}
-                    <div className="px-2">
-                        <button
-                            onClick={() => onTabChange('scan')}
-                            className="w-14 h-14 rounded-2xl bg-zinc-950 hover:bg-black text-white flex flex-col items-center justify-center shadow-pill active:scale-90 transition-all border border-zinc-800 relative group -mt-4 ring-4 ring-[#F4F4F6]"
-                            title="Scan Business Card"
-                        >
-                            <ScanLine className="w-6 h-6 text-white group-hover:scale-110 transition-transform" />
-                            <span className="text-[9px] font-bold text-zinc-300 mt-0.5">SCAN</span>
-                            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white animate-pulse"></span>
-                        </button>
-                    </div>
+                    {/* Tab 3: Scan (Uniform style, no harsh black button or focus type) */}
+                    <button
+                        onClick={() => onTabChange('scan')}
+                        className={`flex-1 flex flex-col items-center justify-center py-2.5 rounded-2xl transition-all active:scale-95 ${
+                            activeTab === 'scan'
+                                ? 'text-zinc-950 font-bold'
+                                : 'text-zinc-400 hover:text-zinc-700 font-medium'
+                        }`}
+                    >
+                        <ScanLine className={`w-5 h-5 ${activeTab === 'scan' ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
+                        <span className="text-[10px] mt-1 tracking-tight">Scan</span>
+                    </button>
 
-                    {/* Tab 4: Profile / Settings */}
+                    {/* Tab 4: Profile */}
                     <button
                         onClick={() => onTabChange('profile')}
-                        className={`flex-1 flex flex-col items-center justify-center py-2 rounded-2xl transition-all active:scale-95 ${
+                        className={`flex-1 flex flex-col items-center justify-center py-2.5 rounded-2xl transition-all active:scale-95 ${
                             activeTab === 'profile'
                                 ? 'text-zinc-950 font-bold'
                                 : 'text-zinc-400 hover:text-zinc-700 font-medium'

@@ -71,3 +71,4 @@ export function openWhatsApp(phone, card, expoName = 'Ceramix Expo 2026') {
     const url = `https://wa.me/${recipient}?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');
 }
+

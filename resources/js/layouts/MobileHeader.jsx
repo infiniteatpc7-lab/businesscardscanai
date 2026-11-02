@@ -1,9 +1,7 @@
 import React from 'react';
 import {
     ScanLine,
-    Sparkles,
-    Calendar,
-    Languages
+    Sparkles
 } from 'lucide-react';
 
 export default function MobileHeader({
@@ -28,7 +26,7 @@ export default function MobileHeader({
                     </div>
                 </div>
 
-                {/* Right: Active Expo & Sample Trigger */}
+                {/* Right: Badge matching 3rd screenshot & Sample trigger */}
                 <div className="flex items-center gap-2">
                     {onLoadSample && (
                         <button
@@ -41,9 +39,9 @@ export default function MobileHeader({
                         </button>
                     )}
 
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-bold text-emerald-800">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                        <span className="truncate max-w-[100px]">Ceramix 2026</span>
+                    {/* Dark capsule Active badge matching Screenshot 3 */}
+                    <div className="px-3 py-1 rounded-xl bg-[#0D1913] border border-emerald-900/60 text-[#00E575] text-[11px] font-bold tracking-tight shadow-sm select-none">
+                        Active
                     </div>
                 </div>
             </div>

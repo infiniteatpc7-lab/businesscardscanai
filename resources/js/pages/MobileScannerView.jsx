@@ -102,7 +102,7 @@ export default function MobileScannerView({
 
             if (result.success && result.data) {
                 setCardData(result.data);
-                showToast(`Card parsed! Accuracy: ${result.data.accuracy_score || 95}%`, 'success');
+                showToast('Card extracted successfully!', 'success');
             } else {
                 showToast(result.message || 'Scan failed to extract card text', 'error');
             }
@@ -194,10 +194,13 @@ export default function MobileScannerView({
             {/* Extracted Data Bento Card */}
             {cardData && (
                 <div className="bg-white rounded-3xl p-5 shadow-behance border border-black/[0.04] space-y-4">
-                    {/* Header: Accuracy Badge & View Switcher */}
+                    {/* Header: Status & View Switcher */}
                     <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
                         <div className="flex items-center gap-2">
-                            <AccuracyBadge score={cardData.accuracy_score} />
+                            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-zinc-100 text-zinc-700 text-[10px] font-bold">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Verified</span>
+                            </div>
                             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
                                 {cardData.detected_language || 'Gujarati'}
                             </span>
@@ -223,17 +226,6 @@ export default function MobileScannerView({
                             </button>
                         </div>
                     </div>
-
-                    {/* Breakdown Reason */}
-                    {cardData.accuracy_reason && (
-                        <div className="bg-zinc-50 rounded-2xl p-3 border border-zinc-200/70 text-[11px] text-zinc-700 leading-relaxed flex items-start gap-2">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                            <div>
-                                <span className="font-bold text-zinc-900">Analysis: </span>
-                                <span>{cardData.accuracy_reason}</span>
-                            </div>
-                        </div>
-                    )}
 
                     {/* Content View */}
                     {activeTab === 'table' ? (
@@ -286,3 +278,4 @@ export default function MobileScannerView({
         </div>
     );
 }
+

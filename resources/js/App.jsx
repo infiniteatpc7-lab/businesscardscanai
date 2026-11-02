@@ -86,42 +86,44 @@ function MobileAppContent() {
 
                 {/* Page Content Body */}
                 <main className="flex-1 p-4 relative z-10 overflow-y-auto">
-                    {activeTab === 'home' && (
-                        <MobileHomePage
-                            cards={cards}
-                            onNavigateToScan={() => setActiveTab('scan')}
-                            onNavigateToCards={() => setActiveTab('cards')}
-                            onSelectCard={(card) => {
-                                setSelectedCardForModal(card);
-                                setActiveTab('cards');
-                            }}
-                            onLoadSample={() => setActiveTab('scan')}
-                            onExportCSV={handleExportCSV}
-                        />
-                    )}
+                    <div key={activeTab} className="animate-tab-fade">
+                        {activeTab === 'home' && (
+                            <MobileHomePage
+                                cards={cards}
+                                onNavigateToScan={() => setActiveTab('scan')}
+                                onNavigateToCards={() => setActiveTab('cards')}
+                                onSelectCard={(card) => {
+                                    setSelectedCardForModal(card);
+                                    setActiveTab('cards');
+                                }}
+                                onLoadSample={() => setActiveTab('scan')}
+                                onExportCSV={handleExportCSV}
+                            />
+                        )}
 
-                    {activeTab === 'cards' && (
-                        <MobileCardsPage
-                            cards={cards}
-                            onRefresh={loadCards}
-                            onNavigateToScan={() => setActiveTab('scan')}
-                            onExportCSV={handleExportCSV}
-                        />
-                    )}
+                        {activeTab === 'cards' && (
+                            <MobileCardsPage
+                                cards={cards}
+                                onRefresh={loadCards}
+                                onNavigateToScan={() => setActiveTab('scan')}
+                                onExportCSV={handleExportCSV}
+                            />
+                        )}
 
-                    {activeTab === 'scan' && (
-                        <MobileScannerView
-                            onCardSaved={handleCardSaved}
-                            onNavigateToCards={() => setActiveTab('cards')}
-                        />
-                    )}
+                        {activeTab === 'scan' && (
+                            <MobileScannerView
+                                onCardSaved={handleCardSaved}
+                                onNavigateToCards={() => setActiveTab('cards')}
+                            />
+                        )}
 
-                    {activeTab === 'profile' && (
-                        <MobileProfilePage
-                            cardsCount={cards.length}
-                            onExportCSV={handleExportCSV}
-                        />
-                    )}
+                        {activeTab === 'profile' && (
+                            <MobileProfilePage
+                                cardsCount={cards.length}
+                                onExportCSV={handleExportCSV}
+                            />
+                        )}
+                    </div>
                 </main>
 
                 {/* Bottom Navigation */}

@@ -6,14 +6,11 @@ import {
     ArrowRight,
     TrendingUp,
     Phone,
-    MapPin,
-    Building2,
-    Calendar,
     FileSpreadsheet,
     Languages,
-    ExternalLink
+    CheckCircle2,
+    ChevronRight
 } from 'lucide-react';
-import { AccuracyBadge } from '../components/common/Badge';
 
 export default function MobileHomePage({
     cards,
@@ -24,9 +21,6 @@ export default function MobileHomePage({
     onExportCSV
 }) {
     const totalCount = cards.length;
-    const avgAccuracy = totalCount > 0
-        ? Math.round(cards.reduce((acc, c) => acc + (c.accuracy_score || 95), 0) / totalCount)
-        : 95;
 
     return (
         <div className="space-y-4 pb-24">
@@ -69,9 +63,9 @@ export default function MobileHomePage({
                 </div>
             </div>
 
-            {/* Bento Row: Today's Metrics (2 Columns) */}
+            {/* Bento Row: Metrics (2 Columns) - No accuracy score numbers */}
             <div className="grid grid-cols-2 gap-3">
-                {/* Metric 1 */}
+                {/* Metric 1: Stored Cards */}
                 <div
                     onClick={onNavigateToCards}
                     className="bg-white rounded-3xl p-4 shadow-behance border border-black/[0.04] space-y-1.5 cursor-pointer active:scale-95 transition-all"
@@ -91,19 +85,19 @@ export default function MobileHomePage({
                     </div>
                 </div>
 
-                {/* Metric 2 */}
+                {/* Metric 2: Script Support */}
                 <div className="bg-white rounded-3xl p-4 shadow-behance border border-black/[0.04] space-y-1.5">
                     <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">OCR Precision</span>
-                        <div className="w-7 h-7 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
-                            <Sparkles className="w-3.5 h-3.5" />
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Scripts</span>
+                        <div className="w-7 h-7 rounded-xl bg-zinc-100 text-zinc-800 flex items-center justify-center">
+                            <Languages className="w-3.5 h-3.5" />
                         </div>
                     </div>
                     <div className="text-2xl font-extrabold text-zinc-950">
-                        {avgAccuracy}%
+                        Multi
                     </div>
                     <div className="text-[10px] text-zinc-500 font-medium">
-                        Regional text verified
+                        Gujarati · Hindi · EN
                     </div>
                 </div>
             </div>
@@ -159,10 +153,8 @@ export default function MobileHomePage({
                                     )}
                                 </div>
 
-                                <div className="shrink-0 flex items-center gap-2">
-                                    <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-bold">
-                                        {card.accuracy_score || 95}%
-                                    </span>
+                                <div className="shrink-0 flex items-center text-zinc-400">
+                                    <ChevronRight className="w-4 h-4" />
                                 </div>
                             </div>
                         ))}
