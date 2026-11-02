@@ -24,26 +24,35 @@ export default function MobileHomePage({
 
     return (
         <div className="space-y-4 pb-24">
-            {/* Bento Tile 1: Hero Scanner Action (Solid premium dark, no gratuitous glow or blur) */}
-            <div className="bg-zinc-950 rounded-3xl p-6 text-white shadow-behance border border-zinc-800 relative overflow-hidden">
-                <div className="space-y-3">
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-[10px] font-semibold text-emerald-400">
+            {/* Bento Tile 1: Hero Scanner Action with bg.jpg background */}
+            <div className="rounded-3xl p-6 text-white shadow-behance border border-black/10 relative overflow-hidden bg-zinc-950">
+                {/* Background Image */}
+                <img
+                    src="/bg.jpg"
+                    alt="Scanner Background"
+                    className="absolute inset-0 w-full h-full object-cover object-center pointer-events-none select-none"
+                />
+                {/* Contrast Scrim / Overlay so text & buttons pop clearly */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/60 to-black/45 pointer-events-none" />
+
+                <div className="relative z-10 space-y-3">
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/40 border border-white/15 backdrop-blur-md text-[10px] font-semibold text-emerald-400">
                         <Languages className="w-3 h-3" />
                         <span>Gujarati · Hindi · English Recognition</span>
                     </div>
 
-                    <h2 className="text-xl font-extrabold tracking-tight leading-snug">
+                    <h2 className="text-xl font-extrabold tracking-tight leading-snug drop-shadow-sm">
                         Ready to scan visiting cards at booth?
                     </h2>
 
-                    <p className="text-xs text-zinc-400 leading-relaxed">
+                    <p className="text-xs text-zinc-200 leading-relaxed drop-shadow-sm">
                         Instantly extract business details, 10-digit mobile numbers, and complete postal addresses directly into your directory.
                     </p>
 
                     <div className="pt-2 flex flex-col gap-2">
                         <button
                             onClick={onNavigateToScan}
-                            className="w-full py-3.5 px-5 rounded-2xl bg-white text-zinc-950 text-xs font-extrabold hover:bg-zinc-100 transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"
+                            className="w-full py-3.5 px-5 rounded-2xl bg-white text-zinc-950 text-xs font-extrabold hover:bg-zinc-100 transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
                         >
                             <ScanLine className="w-4 h-4 text-zinc-950" />
                             <span>Open Camera Scanner</span>
@@ -51,7 +60,7 @@ export default function MobileHomePage({
 
                         <button
                             onClick={onLoadSample}
-                            className="w-full py-2.5 px-4 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-semibold transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                            className="w-full py-2.5 px-4 rounded-xl bg-black/40 hover:bg-black/60 border border-white/20 text-white text-xs font-semibold backdrop-blur-md transition-all active:scale-95 flex items-center justify-center gap-1.5"
                         >
                             <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                             <span>Try Sample Gujarati Card (મોરબી ડેપો)</span>
