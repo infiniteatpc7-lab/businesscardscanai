@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
     Trash2,
     MessageCircle,
@@ -7,7 +7,12 @@ import {
     User,
     UserPlus
 } from 'lucide-react';
-import { downloadVCard, openWhatsApp } from '../../services/vcfHelper';
+import {
+    downloadVCard,
+    openWhatsApp,
+    isLandlineNumber,
+    initiatePhoneCall
+} from '../../services/vcfHelper';
 
 export default function SwipeableCardItem({
     card,
@@ -25,11 +30,14 @@ export default function SwipeableCardItem({
     const isHorizontalRef = useRef(null);
     const itemRef = useRef(null);
 
-    const primaryPhone = Array.isArray(card.phone) && card.phone.length > 0 ? card.phone[0] : null;
+    const primaryPhone = Array.isArray(card.phone) && card.phone.length > 0
+        ? card.phone[0]
+        : (typeof card.phone === 'string' && card.phone.length > 0 ? card.phone : null);
+
+    const isLandline = isLandlineNumber(primaryPhone);
 
     // Thresholds
     const ACTION_THRESHOLD = 90; // Reveals action
-    const FULL_SWIPE_THRESHOLD = 160; // Triggers automatic swipe action
 
     const handleTouchStart = (e) => {
         const touch = e.touches[0];
@@ -83,10 +91,9 @@ export default function SwipeableCardItem({
         // Swipe Left (Destructive: Delete)
         if (offsetX < -ACTION_THRESHOLD) {
             triggerHaptic();
-            // Trigger delete with smooth collapse
             executeDelete();
         }
-        // Swipe Right (Quick WhatsApp / Contact)
+        // Swipe Right (Smart: WhatsApp for Mobile, Call for Landline, vCard for other)
         else if (offsetX > ACTION_THRESHOLD) {
             triggerHaptic();
             executeRightAction();
@@ -107,20 +114,29 @@ export default function SwipeableCardItem({
         }, 220);
     };
 
-    // Execute Right Swipe Action (WhatsApp or Save to Phone)
+    // Execute Right Swipe Action (WhatsApp or Phone Call or Save to Phone)
     const executeRightAction = () => {
-        if (primaryPhone) {
-            openWhatsApp(primaryPhone, card);
-            showToast?.(`Opening WhatsApp for ${card.name || card.company || 'Contact'}`);
-        } else {
+        if (!primaryPhone) {
             downloadVCard(card);
             showToast?.('vCard downloaded for phone contacts');
+            return;
+        }
+
+        if (isLandline) {
+            initiatePhoneCall(primaryPhone);
+            showToast?.(`Calling ${card.name || card.company || 'Contact'}...`);
+        } else {
+            openWhatsApp(primaryPhone, card);
+            showToast?.(`Opening WhatsApp for ${card.name || card.company || 'Contact'}`);
         }
     };
 
     // Background icon scale calculations
     const leftSwipeProgress = Math.min(1, Math.max(0, -offsetX / ACTION_THRESHOLD));
     const rightSwipeProgress = Math.min(1, Math.max(0, offsetX / ACTION_THRESHOLD));
+
+    // Right action surface styling
+    const rightActionBg = isLandline ? 'bg-[#1A73E8]' : 'bg-[#0F9D58]';
 
     return (
         <div
@@ -131,10 +147,10 @@ export default function SwipeableCardItem({
         >
             {/* Background Actions Layer (Gmail-like clean colored reveal surfaces) */}
             <div className="absolute inset-0 rounded-3xl flex items-center justify-between pointer-events-none overflow-hidden">
-                {/* Right Swipe Revealed (Gmail Emerald Green: WhatsApp / Contact) */}
+                {/* Right Swipe Revealed (Emerald Green for WhatsApp OR Blue for Landline Call) */}
                 <div
                     className={`h-full flex items-center gap-2 pl-6 transition-colors duration-150 ${
-                        offsetX > 0 ? 'bg-[#0F9D58] text-white w-full' : 'bg-transparent text-transparent'
+                        offsetX > 0 ? `${rightActionBg} text-white w-full` : 'bg-transparent text-transparent'
                     }`}
                 >
                     <div
@@ -145,10 +161,17 @@ export default function SwipeableCardItem({
                         }}
                     >
                         {primaryPhone ? (
-                            <>
-                                <MessageCircle className="w-5 h-5 fill-white stroke-[#0F9D58]" />
-                                <span>WhatsApp</span>
-                            </>
+                            isLandline ? (
+                                <>
+                                    <Phone className="w-5 h-5 fill-white stroke-[#1A73E8]" />
+                                    <span>Call Office</span>
+                                </>
+                            ) : (
+                                <>
+                                    <MessageCircle className="w-5 h-5 fill-white stroke-[#0F9D58]" />
+                                    <span>WhatsApp</span>
+                                </>
+                            )
                         ) : (
                             <>
                                 <UserPlus className="w-5 h-5" />
@@ -183,7 +206,6 @@ export default function SwipeableCardItem({
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
                 onClick={() => {
-                    // Only trigger select if user didn't swipe
                     if (Math.abs(offsetX) < 5) {
                         onSelectCard(card);
                     }
@@ -198,26 +220,29 @@ export default function SwipeableCardItem({
                 <div className="flex items-start justify-between gap-2">
                     <div className="space-y-0.5 min-w-0">
                         <h3 className="font-gujarati font-extrabold text-sm text-zinc-950 truncate">
-                            {card.company || card.name || 'Unnamed Business'}
+                            {card.company || card.company_english || card.name || 'Unnamed Business'}
                         </h3>
-                        {card.company_english && card.company && (
-                            <p className="text-[11px] font-medium text-zinc-500 truncate">
-                                {card.company_english}
-                            </p>
+                        {card.company_english && card.company !== card.company_english && (
+                            <p className="text-[11px] text-zinc-600 truncate">{card.company_english}</p>
                         )}
                     </div>
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider shrink-0">
-                        {card.detected_language || 'Card'}
-                    </span>
+                    {card.detected_language && (
+                        <span className="text-[9px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-500 font-semibold shrink-0">
+                            {card.detected_language}
+                        </span>
+                    )}
                 </div>
 
-                {/* Person / Designation */}
+                {/* Contact Person & Role */}
                 {(card.name || card.designation) && (
-                    <div className="flex items-center gap-1.5 text-xs text-zinc-700 font-semibold">
+                    <div className="flex items-center gap-1.5 text-xs text-zinc-700">
                         <User className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-                        <span className="truncate">{card.name || 'Contact'}</span>
+                        <span className="font-bold text-zinc-900 truncate font-gujarati">{card.name || 'Contact'}</span>
                         {card.designation && (
-                            <span className="text-zinc-400 font-normal truncate">· {card.designation}</span>
+                            <>
+                                <span className="text-zinc-300">·</span>
+                                <span className="text-zinc-500 truncate text-[11px]">{card.designation}</span>
+                            </>
                         )}
                     </div>
                 )}
@@ -237,22 +262,26 @@ export default function SwipeableCardItem({
                     </span>
 
                     <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                        {/* Phone Call */}
+                        {/* Phone Call (Highlighted if landline) */}
                         {primaryPhone && (
                             <a
                                 href={`tel:${primaryPhone}`}
-                                className="w-8 h-8 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 flex items-center justify-center transition-all active:scale-95"
-                                title="Call"
+                                className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all active:scale-95 ${
+                                    isLandline
+                                        ? 'bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/60'
+                                        : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-800'
+                                }`}
+                                title={isLandline ? 'Call Landline/Office' : 'Call'}
                             >
                                 <Phone className="w-3.5 h-3.5" />
                             </a>
                         )}
 
-                        {/* WhatsApp */}
-                        {primaryPhone && (
+                        {/* WhatsApp (Only shown/highlighted if mobile) */}
+                        {primaryPhone && !isLandline && (
                             <button
                                 onClick={() => openWhatsApp(primaryPhone, card)}
-                                className="w-8 h-8 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 flex items-center justify-center transition-all active:scale-95"
+                                className="w-8 h-8 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/60 flex items-center justify-center transition-all active:scale-95"
                                 title="Chat on WhatsApp"
                             >
                                 <MessageCircle className="w-3.5 h-3.5" />

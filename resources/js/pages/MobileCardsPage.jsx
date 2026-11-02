@@ -13,7 +13,7 @@ import {
     Languages
 } from 'lucide-react';
 import SwipeableCardItem from '../components/cards/SwipeableCardItem';
-import { downloadVCard, openWhatsApp } from '../services/vcfHelper';
+import { downloadVCard, openWhatsApp, isLandlineNumber } from '../services/vcfHelper';
 import { deleteCard, saveCard } from '../services/cardApi';
 import { useToast } from '../context/ToastContext';
 
@@ -310,13 +310,23 @@ export default function MobileCardsPage({
                             </button>
 
                             {Array.isArray(selectedCard.phone) && selectedCard.phone[0] && (
-                                <button
-                                    onClick={() => openWhatsApp(selectedCard.phone[0], selectedCard)}
-                                    className="py-2.5 px-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5"
-                                >
-                                    <MessageCircle className="w-3.5 h-3.5" />
-                                    <span>WhatsApp</span>
-                                </button>
+                                isLandlineNumber(selectedCard.phone[0]) ? (
+                                    <a
+                                        href={`tel:${selectedCard.phone[0]}`}
+                                        className="py-2.5 px-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                                    >
+                                        <Phone className="w-3.5 h-3.5" />
+                                        <span>Call Office</span>
+                                    </a>
+                                ) : (
+                                    <button
+                                        onClick={() => openWhatsApp(selectedCard.phone[0], selectedCard)}
+                                        className="py-2.5 px-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                                    >
+                                        <MessageCircle className="w-3.5 h-3.5" />
+                                        <span>WhatsApp</span>
+                                    </button>
+                                )
                             )}
                         </div>
 
