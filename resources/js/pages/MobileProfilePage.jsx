@@ -60,13 +60,13 @@ export default function MobileProfilePage({
                         ></div>
                     </div>
                     <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-1">
-                        <span>Cost: ₹0.007 / scan (Gemini Flash)</span>
-                        <span className="text-emerald-600 font-semibold">99.3% quota available</span>
+                        <span>Directory Storage: Active</span>
+                        <span className="text-emerald-600 font-semibold">Ready for Booth Scans</span>
                     </div>
                 </div>
             </div>
 
-            {/* OCR & Script Preferences Bento Tile */}
+            {/* Business Preferences Bento Tile */}
             <div className="bg-white rounded-3xl p-5 shadow-behance border border-black/[0.04] space-y-3">
                 <div className="flex items-center gap-2 mb-1">
                     <Languages className="w-4 h-4 text-zinc-800" />
@@ -76,24 +76,24 @@ export default function MobileProfilePage({
                 <div className="space-y-2 text-xs">
                     <div className="flex items-center justify-between p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60">
                         <div>
-                            <span className="font-bold text-zinc-900 block">Default OCR Script</span>
-                            <span className="text-[10px] text-zinc-500">Gujarati + Roman English</span>
+                            <span className="font-bold text-zinc-900 block">Language Support</span>
+                            <span className="text-[10px] text-zinc-500">Gujarati, Hindi & English</span>
                         </div>
                         <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                     </div>
 
                     <div className="flex items-center justify-between p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60">
                         <div>
-                            <span className="font-bold text-zinc-900 block">Auto Image Optimization</span>
-                            <span className="text-[10px] text-zinc-500">1800px Canvas downscale (Fast upload)</span>
+                            <span className="font-bold text-zinc-900 block">Mobile Optimization</span>
+                            <span className="text-[10px] text-zinc-500">Fast Upload & Image Processing</span>
                         </div>
                         <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                     </div>
 
                     <div className="flex items-center justify-between p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60">
                         <div>
-                            <span className="font-bold text-zinc-900 block">Multimodal Engine</span>
-                            <span className="text-[10px] text-zinc-500">Google Gemini 3.5 Flash (Direct cURL)</span>
+                            <span className="font-bold text-zinc-900 block">Processing Engine</span>
+                            <span className="text-[10px] text-zinc-500">CardScan Neural Processor</span>
                         </div>
                         <span className="font-mono text-[10px] font-bold text-zinc-700">v2.0</span>
                     </div>

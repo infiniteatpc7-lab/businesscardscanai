@@ -175,14 +175,14 @@ export default function ScannerPage({ onCardSaved, onNavigateToContacts }) {
 
                 <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-white border border-zinc-200/80 text-[11px] font-semibold text-zinc-700 mb-2 shadow-sm">
                     <Languages className="w-3.5 h-3.5 text-zinc-950" />
-                    <span>Specialized Multimodal Gujarati, Hindi & Regional Script OCR</span>
+                    <span>Specialized Gujarati, Hindi & Regional Script Recognition</span>
                 </div>
 
                 <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-zinc-950 max-w-xl mx-auto">
                     Instant Visiting Card Intelligence
                 </h2>
                 <p className="text-xs sm:text-sm text-zinc-600 max-w-md mx-auto mt-1.5 font-normal">
-                    Gemini Vision decodes complex Gujarati ligatures, extracts phone numbers, and provides dual-script English transliterations in real-time.
+                    Recognizes stylized regional typography, extracts contact numbers, and generates dual-script English transliterations in real-time.
                 </p>
             </div>
 
@@ -205,7 +205,7 @@ export default function ScannerPage({ onCardSaved, onNavigateToContacts }) {
                             <div className="w-8 h-8 rounded-full border-2 border-black border-t-transparent animate-spin mx-auto"></div>
                             <div className="space-y-1">
                                 <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-500">
-                                    Multimodal Vision OCR
+                                    CardScan Engine
                                 </h4>
                                 <p className="text-sm font-semibold text-zinc-900">{scanProgress}</p>
                             </div>
@@ -222,7 +222,7 @@ export default function ScannerPage({ onCardSaved, onNavigateToContacts }) {
                             </div>
                             <h3 className="text-base font-bold text-zinc-900">No Card Processed Yet</h3>
                             <p className="text-xs text-zinc-500 max-w-sm mt-1 mb-6">
-                                Select an image or click "Try Sample" to watch Gemini Multimodal OCR decode complex fonts, phone numbers, and addresses in real-time.
+                                Select an image or click "Try Sample" to extract contact names, phone numbers, and addresses in real-time.
                             </p>
                             <button
                                 onClick={handleLoadSample}

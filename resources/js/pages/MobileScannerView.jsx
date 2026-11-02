@@ -184,7 +184,7 @@ export default function MobileScannerView({
                     <div className="w-8 h-8 rounded-full border-2 border-black border-t-transparent animate-spin mx-auto"></div>
                     <div className="space-y-0.5">
                         <h4 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                            Multimodal Vision OCR
+                            CardScan Engine
                         </h4>
                         <p className="text-xs font-bold text-zinc-900">{scanProgress}</p>
                     </div>

@@ -56,7 +56,7 @@ export default function PlaceholderPage({ pageId, onNavigateToScanner }) {
         subscription: [
             { label: 'Current Plan', value: 'Exhibition Pro' },
             { label: 'Quota Remaining', value: '852 / 1,000' },
-            { label: 'Cost Per Scan', value: '₹0.007 (Google Flash)' },
+            { label: 'Storage Status', value: 'Active & Synced' },
         ],
         settings: [
             { label: 'Default Script', value: 'Gujarati / English' },

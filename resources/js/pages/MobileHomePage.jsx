@@ -32,7 +32,7 @@ export default function MobileHomePage({
                 <div className="relative z-10 space-y-3">
                     <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 backdrop-blur-md text-[10px] font-semibold text-emerald-400">
                         <Languages className="w-3 h-3" />
-                        <span>Gujarati · Hindi · English Vision OCR</span>
+                        <span>Gujarati · Hindi · English Recognition</span>
                     </div>
 
                     <h2 className="text-xl font-extrabold tracking-tight leading-snug">
@@ -40,7 +40,7 @@ export default function MobileHomePage({
                     </h2>
 
                     <p className="text-xs text-zinc-300 leading-relaxed">
-                        Multimodal Gemini AI decodes complex calligraphy, extracts 10-digit mobile numbers, and saves to your contacts.
+                        Instantly extract business details, 10-digit mobile numbers, and complete addresses directly into your contacts directory.
                     </p>
 
                     <div className="pt-2 flex flex-col gap-2">

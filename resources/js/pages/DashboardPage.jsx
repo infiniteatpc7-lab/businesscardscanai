@@ -120,7 +120,7 @@ export default function DashboardPage({
                         <span className="text-2xl sm:text-3xl font-extrabold tracking-tight text-zinc-950">
                             {avgAccuracy}%
                         </span>
-                        <span className="text-xs font-semibold text-emerald-600">Multimodal</span>
+                        <span className="text-xs font-semibold text-emerald-600">Verified</span>
                     </div>
                     <p className="text-[11px] text-zinc-500">Gujarati & Hindi calligraphy</p>
                 </div>
