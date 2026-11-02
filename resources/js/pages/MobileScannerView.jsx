@@ -167,7 +167,7 @@ export default function MobileScannerView({
     };
 
     return (
-        <div className="space-y-4 pb-24">
+        <div className={`space-y-4 pb-20 ${!cardData ? 'flex-1 flex flex-col justify-center my-auto' : ''}`}>
             {/* Capture Area */}
             <CardUploadDropzone
                 imagePreview={imagePreview}

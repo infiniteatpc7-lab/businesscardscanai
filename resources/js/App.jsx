@@ -85,8 +85,8 @@ function MobileAppContent() {
                 />
 
                 {/* Page Content Body */}
-                <main className="flex-1 p-4 relative z-10 overflow-y-auto">
-                    <div key={activeTab} className="animate-tab-fade">
+                <main className="flex-1 p-4 relative z-10 overflow-y-auto flex flex-col">
+                    <div key={activeTab} className="animate-tab-fade flex-1 flex flex-col">
                         {activeTab === 'home' && (
                             <MobileHomePage
                                 cards={cards}
