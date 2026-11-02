@@ -1,0 +1,385 @@
+import React, { useState } from 'react';
+import {
+    Search,
+    Phone,
+    MapPin,
+    User,
+    Trash2,
+    FileSpreadsheet,
+    MessageCircle,
+    UserPlus,
+    X,
+    Sparkles,
+    Check
+} from 'lucide-react';
+import { AccuracyBadge } from '../components/common/Badge';
+import { downloadVCard, openWhatsApp } from '../services/vcfHelper';
+import { deleteCard } from '../services/cardApi';
+import { useToast } from '../context/ToastContext';
+
+export default function MobileCardsPage({
+    cards,
+    onRefresh,
+    onNavigateToScan,
+    onExportCSV
+}) {
+    const { showToast } = useToast();
+    const [searchTerm, setSearchTerm] = useState('');
+    const [filterScript, setFilterScript] = useState('all'); // 'all' | 'gujarati' | 'english'
+    const [selectedCard, setSelectedCard] = useState(null);
+
+    // Filter cards
+    const filteredCards = cards.filter((card) => {
+        const q = searchTerm.toLowerCase();
+        const matchesQuery =
+            !q ||
+            (card.company && card.company.toLowerCase().includes(q)) ||
+            (card.company_english && card.company_english.toLowerCase().includes(q)) ||
+            (card.name && card.name.toLowerCase().includes(q)) ||
+            (card.address && card.address.toLowerCase().includes(q)) ||
+            (Array.isArray(card.phone) && card.phone.some((p) => p.includes(q)));
+
+        if (!matchesQuery) return false;
+
+        if (filterScript === 'gujarati') {
+            return (
+                card.detected_language?.toLowerCase().includes('gujarati') ||
+                (card.company && /[\u0A80-\u0AFF]/.test(card.company))
+            );
+        } else if (filterScript === 'english') {
+            return (
+                card.detected_language?.toLowerCase().includes('english') &&
+                !/[\u0A80-\u0AFF]/.test(card.company || '')
+            );
+        }
+
+        return true;
+    });
+
+    const handleDelete = async (id) => {
+        if (!confirm('Delete this card from your business directory?')) return;
+        try {
+            const res = await deleteCard(id);
+            if (res.success) {
+                showToast('Card removed');
+                if (selectedCard?.id === id) setSelectedCard(null);
+                onRefresh();
+            }
+        } catch (err) {
+            console.error('Delete error:', err);
+            showToast('Failed to delete card', 'error');
+        }
+    };
+
+    return (
+        <div className="space-y-4 pb-24">
+            {/* Search Bar & Header */}
+            <div className="bg-white rounded-3xl p-4 shadow-behance border border-black/[0.04] space-y-3">
+                <div className="relative">
+                    <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                        type="text"
+                        placeholder="Search company, phone, name, city..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full bg-zinc-50 border border-zinc-200/80 pl-10 pr-4 py-2.5 rounded-2xl text-xs font-medium focus:outline-none focus:border-black transition-colors"
+                    />
+                </div>
+
+                {/* Filter Chips */}
+                <div className="flex items-center justify-between gap-2 pt-0.5">
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar text-[11px] font-semibold">
+                        <button
+                            onClick={() => setFilterScript('all')}
+                            className={`px-3 py-1 rounded-xl transition-all ${
+                                filterScript === 'all'
+                                    ? 'bg-black text-white shadow-sm'
+                                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                            }`}
+                        >
+                            All ({cards.length})
+                        </button>
+                        <button
+                            onClick={() => setFilterScript('gujarati')}
+                            className={`px-3 py-1 rounded-xl font-gujarati transition-all ${
+                                filterScript === 'gujarati'
+                                    ? 'bg-black text-white shadow-sm'
+                                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                            }`}
+                        >
+                            ગુજરાતી
+                        </button>
+                        <button
+                            onClick={() => setFilterScript('english')}
+                            className={`px-3 py-1 rounded-xl transition-all ${
+                                filterScript === 'english'
+                                    ? 'bg-black text-white shadow-sm'
+                                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                            }`}
+                        >
+                            English
+                        </button>
+                    </div>
+
+                    <button
+                        onClick={onExportCSV}
+                        className="p-1.5 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 active:scale-95"
+                        title="Export CSV"
+                    >
+                        <FileSpreadsheet className="w-4 h-4" />
+                    </button>
+                </div>
+            </div>
+
+            {/* Cards List */}
+            {filteredCards.length === 0 ? (
+                <div className="bg-white rounded-3xl p-8 text-center shadow-behance border border-black/[0.04] space-y-3">
+                    <div className="w-12 h-12 rounded-2xl bg-zinc-100 flex items-center justify-center mx-auto text-zinc-400">
+                        <Search className="w-6 h-6" />
+                    </div>
+                    <h3 className="text-sm font-bold text-zinc-950">No matching business cards</h3>
+                    <p className="text-xs text-zinc-500 max-w-xs mx-auto">
+                        {searchTerm ? `No results found for "${searchTerm}"` : 'No cards captured yet.'}
+                    </p>
+                    <button
+                        onClick={onNavigateToScan}
+                        className="px-4 py-2 rounded-full bg-black text-white text-xs font-bold active:scale-95 shadow-pill"
+                    >
+                        Scan a Card
+                    </button>
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    {filteredCards.map((card) => {
+                        const primaryPhone = Array.isArray(card.phone) && card.phone.length > 0 ? card.phone[0] : null;
+
+                        return (
+                            <div
+                                key={card.id}
+                                onClick={() => setSelectedCard(card)}
+                                className="bg-white rounded-3xl p-4 shadow-behance border border-black/[0.04] hover:shadow-behance-lg transition-all space-y-3 cursor-pointer active:scale-[0.99]"
+                            >
+                                {/* Card Top: Company & Accuracy */}
+                                <div className="flex items-start justify-between gap-2">
+                                    <div className="space-y-0.5 min-w-0">
+                                        <h3 className="font-gujarati font-extrabold text-sm text-zinc-950 truncate">
+                                            {card.company || card.name || 'Unnamed Business'}
+                                        </h3>
+                                        {card.company_english && card.company && (
+                                            <p className="text-[11px] font-medium text-zinc-500 truncate">
+                                                {card.company_english}
+                                            </p>
+                                        )}
+                                    </div>
+                                    <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-bold shrink-0">
+                                        {card.accuracy_score || 95}%
+                                    </span>
+                                </div>
+
+                                {/* Person / Designation */}
+                                {(card.name || card.designation) && (
+                                    <div className="flex items-center gap-1.5 text-xs text-zinc-700 font-semibold">
+                                        <User className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                                        <span className="truncate">{card.name || 'Contact'}</span>
+                                        {card.designation && (
+                                            <span className="text-zinc-400 font-normal truncate">· {card.designation}</span>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Address Snippet */}
+                                {card.address && (
+                                    <div className="flex items-start gap-1.5 text-[11px] text-zinc-600 line-clamp-1">
+                                        <MapPin className="w-3 h-3 text-zinc-400 shrink-0 mt-0.5" />
+                                        <span className="font-gujarati truncate">{card.address}</span>
+                                    </div>
+                                )}
+
+                                {/* Bottom Quick Actions: Call, WhatsApp, VCF */}
+                                <div className="pt-2 border-t border-zinc-100 flex items-center justify-between">
+                                    <span className="text-[10px] text-zinc-400 font-mono">
+                                        {new Date(card.created_at || Date.now()).toLocaleDateString()}
+                                    </span>
+
+                                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                        {/* Phone Call */}
+                                        {primaryPhone && (
+                                            <a
+                                                href={`tel:${primaryPhone}`}
+                                                className="w-8 h-8 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 flex items-center justify-center transition-all active:scale-95"
+                                                title="Call"
+                                            >
+                                                <Phone className="w-3.5 h-3.5" />
+                                            </a>
+                                        )}
+
+                                        {/* WhatsApp */}
+                                        {primaryPhone && (
+                                            <button
+                                                onClick={() => openWhatsApp(primaryPhone, card)}
+                                                className="w-8 h-8 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 flex items-center justify-center transition-all active:scale-95"
+                                                title="Chat on WhatsApp"
+                                            >
+                                                <MessageCircle className="w-3.5 h-3.5" />
+                                            </button>
+                                        )}
+
+                                        {/* Save to Phone (vCard) */}
+                                        <button
+                                            onClick={() => {
+                                                downloadVCard(card);
+                                                showToast('vCard downloaded for phone contacts');
+                                            }}
+                                            className="w-8 h-8 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 flex items-center justify-center transition-all active:scale-95"
+                                            title="Save to Phone Contacts"
+                                        >
+                                            <UserPlus className="w-3.5 h-3.5" />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* Card Inspection Modal */}
+            {selectedCard && (
+                <div className="fixed inset-0 z-50 overflow-hidden flex items-end sm:items-center justify-center p-0 sm:p-4">
+                    <div
+                        onClick={() => setSelectedCard(null)}
+                        className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
+                    />
+
+                    <div className="relative bg-white rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-5 z-10 max-h-[85vh] overflow-y-auto">
+                        {/* Header */}
+                        <div className="flex items-start justify-between">
+                            <div className="space-y-0.5">
+                                <h3 className="font-gujarati font-extrabold text-lg text-zinc-950">
+                                    {selectedCard.company || selectedCard.name || 'Business Card'}
+                                </h3>
+                                {selectedCard.company_english && (
+                                    <p className="text-xs font-semibold text-zinc-500">
+                                        {selectedCard.company_english}
+                                    </p>
+                                )}
+                            </div>
+                            <button
+                                onClick={() => setSelectedCard(null)}
+                                className="w-8 h-8 rounded-full hover:bg-zinc-100 flex items-center justify-center text-zinc-400"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        {/* Card Image Preview if available */}
+                        {selectedCard.image_path && (
+                            <div className="rounded-2xl overflow-hidden border border-zinc-200 bg-zinc-900 shadow-inner">
+                                <img
+                                    src={selectedCard.image_path}
+                                    alt="Scanned Card"
+                                    className="w-full max-h-48 object-contain mx-auto"
+                                />
+                            </div>
+                        )}
+
+                        {/* Accuracy badge & language */}
+                        <div className="flex items-center gap-2.5">
+                            <AccuracyBadge score={selectedCard.accuracy_score} />
+                            <span className="text-[10px] uppercase font-bold text-zinc-400">
+                                {selectedCard.detected_language || 'Gujarati'}
+                            </span>
+                        </div>
+
+                        {/* Details Fields */}
+                        <div className="space-y-2.5 text-xs">
+                            {selectedCard.name && (
+                                <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60">
+                                    <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-0.5">Person</span>
+                                    <span className="font-bold text-zinc-950">{selectedCard.name}</span>
+                                    {selectedCard.designation && <span className="text-zinc-500 ml-1">({selectedCard.designation})</span>}
+                                </div>
+                            )}
+
+                            {Array.isArray(selectedCard.phone) && selectedCard.phone.length > 0 && (
+                                <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60 space-y-1.5">
+                                    <span className="text-[10px] uppercase font-bold text-zinc-400 block">Phone Numbers</span>
+                                    <div className="flex flex-wrap gap-2">
+                                        {selectedCard.phone.map((ph, idx) => (
+                                            <a
+                                                key={idx}
+                                                href={`tel:${ph}`}
+                                                className="font-mono font-bold text-xs text-zinc-950 bg-white px-2.5 py-1 rounded-xl border border-zinc-200 hover:bg-zinc-50"
+                                            >
+                                                {ph}
+                                            </a>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {selectedCard.address && (
+                                <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60 space-y-1">
+                                    <span className="text-[10px] uppercase font-bold text-zinc-400 block">Postal Address</span>
+                                    <p className="font-gujarati text-zinc-900 text-xs leading-relaxed">{selectedCard.address}</p>
+                                    {selectedCard.address_english && (
+                                        <p className="text-zinc-500 text-[11px]">{selectedCard.address_english}</p>
+                                    )}
+                                </div>
+                            )}
+
+                            {selectedCard.accuracy_reason && (
+                                <div className="p-3 rounded-2xl bg-emerald-50/60 border border-emerald-200/60 text-emerald-900 text-[11px] leading-relaxed">
+                                    <span className="font-bold text-emerald-800">OCR Breakdown: </span>
+                                    <span>{selectedCard.accuracy_reason}</span>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* 1-Tap Action Pills */}
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                            <button
+                                onClick={() => {
+                                    downloadVCard(selectedCard);
+                                    showToast('vCard downloaded');
+                                }}
+                                className="py-2.5 px-3 rounded-2xl bg-zinc-100 hover:bg-zinc-200 text-zinc-900 text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                            >
+                                <UserPlus className="w-3.5 h-3.5" />
+                                <span>Save to Phone</span>
+                            </button>
+
+                            {Array.isArray(selectedCard.phone) && selectedCard.phone[0] && (
+                                <button
+                                    onClick={() => openWhatsApp(selectedCard.phone[0], selectedCard)}
+                                    className="py-2.5 px-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                                >
+                                    <MessageCircle className="w-3.5 h-3.5" />
+                                    <span>WhatsApp</span>
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Delete Action */}
+                        <div className="pt-2 border-t border-zinc-100 flex items-center justify-between text-xs">
+                            <button
+                                onClick={() => handleDelete(selectedCard.id)}
+                                className="text-rose-600 font-semibold hover:underline flex items-center gap-1"
+                            >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Delete Card</span>
+                            </button>
+
+                            <button
+                                onClick={() => setSelectedCard(null)}
+                                className="px-4 py-1.5 rounded-xl bg-black text-white text-xs font-bold"
+                            >
+                                Done
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}

@@ -133,3 +133,4 @@ export default function PlaceholderPage({ pageId, onNavigateToScanner }) {
         </div>
     );
 }
+

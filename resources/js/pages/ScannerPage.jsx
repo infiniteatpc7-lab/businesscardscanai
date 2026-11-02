@@ -320,3 +320,4 @@ export default function ScannerPage({ onCardSaved, onNavigateToContacts }) {
         </div>
     );
 }
+

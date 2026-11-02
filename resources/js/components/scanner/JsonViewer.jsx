@@ -29,3 +29,4 @@ export default function JsonViewer({ data, onCopy }) {
         </div>
     );
 }
+
