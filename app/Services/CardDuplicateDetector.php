@@ -88,7 +88,7 @@ class CardDuplicateDetector
      *     matching_cards: array<int, array<string, mixed>>
      * }
      */
-    public function detectDuplicates(array $attributes): array
+    public function detectDuplicates(array $attributes, ?int $workspaceId = null): array
     {
         // 1. Incoming phones
         $incomingRawPhones = $attributes['phone'] ?? [];
@@ -117,8 +117,12 @@ class CardDuplicateDetector
 
         $matches = [];
 
-        // Query existing cards (compatible with multi-tenancy scoping)
-        $existingCards = Card::query()->get();
+        // Query existing cards (scoped to workspace when provided)
+        $query = Card::query();
+        if ($workspaceId !== null) {
+            $query->where('workspace_id', $workspaceId);
+        }
+        $existingCards = $query->get();
 
         foreach ($existingCards as $existing) {
             $reasons = [];
@@ -227,4 +231,3 @@ class CardDuplicateDetector
         ];
     }
 }
-

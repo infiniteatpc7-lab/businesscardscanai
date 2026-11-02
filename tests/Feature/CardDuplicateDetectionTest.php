@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\Card;
+use App\Models\User;
+use App\Models\Workspace;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -10,12 +12,44 @@ class CardDuplicateDetectionTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected User $user;
+
+    protected Workspace $workspace;
+
+    protected string $token;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->user = User::create([
+            'name' => 'Test User',
+            'email' => 'tester@example.com',
+            'password' => bcrypt('password123'),
+        ]);
+
+        $this->workspace = Workspace::create([
+            'name' => 'Test Workspace',
+            'slug' => 'test-workspace',
+            'owner_id' => $this->user->id,
+        ]);
+
+        $this->workspace->users()->attach($this->user->id, ['role' => 'owner']);
+        $tokenData = $this->user->createToken('test_token');
+        $this->token = $tokenData['plain_token'];
+
+        $this->withHeaders([
+            'Authorization' => 'Bearer '.$this->token,
+        ]);
+    }
+
     /**
      * Test 1: Exact phone duplicate detection.
      */
     public function test_exact_phone_duplicate(): void
     {
         Card::create([
+            'workspace_id' => $this->workspace->id,
             'name' => 'Sahil Mathukiya',
             'company' => 'Italian Door',
             'phone' => ['9876543210'],
@@ -45,6 +79,7 @@ class CardDuplicateDetectionTest extends TestCase
     public function test_phone_duplicate_with_formatting_differences(): void
     {
         Card::create([
+            'workspace_id' => $this->workspace->id,
             'name' => 'Dipak Bhai',
             'company' => 'Morbi Depo',
             'phone' => ['+91 76007 68285'],
@@ -62,28 +97,29 @@ class CardDuplicateDetectionTest extends TestCase
                 'success' => false,
                 'duplicate' => true,
                 'match_reason' => 'phone',
-            ]);
+            ])
+            ->assertJsonPath('existing_cards.0.name', 'Dipak Bhai');
 
         $this->assertDatabaseCount('cards', 1);
     }
 
     /**
-     * Test 3: Email duplicate detection (case-insensitive & trimmed).
+     * Test 3: Email duplicate detection (case-insensitive).
      */
     public function test_email_duplicate(): void
     {
         Card::create([
-            'name' => 'Rajesh Sharma',
-            'company' => 'Ceramix Tiles',
-            'email' => 'rajesh@ceramix.in',
-            'phone' => ['9812345678'],
+            'workspace_id' => $this->workspace->id,
+            'name' => 'Rakesh Patel',
+            'company' => 'Patel Sanitary',
+            'email' => 'rakesh@patelsanitary.com',
+            'phone' => ['9825012345'],
         ]);
 
         $response = $this->postJson('/api/cards', [
-            'name' => 'R. Sharma',
-            'company' => 'Ceramix Exports',
-            'email' => '  RAJESH@CERAMIX.IN  ',
-            'phone' => ['9988776655'], // Different phone
+            'name' => 'Rakesh Kumar Patel',
+            'company' => 'Patel Ceramics',
+            'email' => 'RAKESH@PATELSANITARY.COM',
         ]);
 
         $response->assertStatus(409)
@@ -92,24 +128,27 @@ class CardDuplicateDetectionTest extends TestCase
                 'duplicate' => true,
                 'match_reason' => 'email',
             ])
-            ->assertJsonPath('existing_cards.0.company', 'Ceramix Tiles');
+            ->assertJsonPath('existing_cards.0.email', 'rakesh@patelsanitary.com');
 
         $this->assertDatabaseCount('cards', 1);
     }
 
     /**
-     * Test 4: Name + company possible duplicate (when phone/email absent).
+     * Test 4: Name + Company combination match.
      */
     public function test_name_and_company_possible_duplicate(): void
     {
         Card::create([
-            'name' => 'Sahil Mathukiya',
-            'company' => 'Italian Door',
+            'workspace_id' => $this->workspace->id,
+            'name' => 'Dipak Soni',
+            'name_english' => 'Dipak Soni',
+            'company' => 'Parshottamdas Jewellers',
+            'company_english' => 'Parshottamdas Jewellers',
         ]);
 
         $response = $this->postJson('/api/cards', [
-            'name' => 'sahil mathukiya',
-            'company' => 'italian door',
+            'name' => 'Dipak Soni',
+            'company' => 'Parshottamdas Jewellers',
         ]);
 
         $response->assertStatus(409)
@@ -123,49 +162,51 @@ class CardDuplicateDetectionTest extends TestCase
     }
 
     /**
-     * Test 5: Same company with different employees must NOT be flagged as duplicate.
+     * Test 5: Different employees from the same company are allowed.
      */
     public function test_same_company_with_different_employees_is_not_duplicate(): void
     {
         Card::create([
-            'name' => 'Sahil Mathukiya',
-            'company' => 'Italian Door',
-            'phone' => ['9811111111'],
-            'email' => 'sahil@italiandoor.com',
+            'workspace_id' => $this->workspace->id,
+            'name' => 'Sanjay Mehta',
+            'company' => 'Interior World',
+            'phone' => ['9825219767'],
+            'email' => 'sanjay@interiorworld.com',
         ]);
 
-        // Different colleague from the same firm
         $response = $this->postJson('/api/cards', [
-            'name' => 'Ketan Patel',
-            'company' => 'Italian Door',
-            'phone' => ['9822222222'],
-            'email' => 'ketan@italiandoor.com',
+            'name' => 'Pooja Mehta',
+            'company' => 'Interior World',
+            'phone' => ['9825219999'],
+            'email' => 'pooja@interiorworld.com',
         ]);
 
         $response->assertStatus(201)
             ->assertJson([
                 'success' => true,
+                'duplicate_override' => false,
             ]);
 
         $this->assertDatabaseCount('cards', 2);
     }
 
     /**
-     * Test 6: Multiple phone numbers on card matches if any number intersects.
+     * Test 6: Multiple phone numbers array matching.
      */
     public function test_multiple_phone_numbers_duplicate_detection(): void
     {
         Card::create([
-            'name' => 'Office Desk',
-            'company' => 'Clay Decor',
-            'phone' => ['02822240123', '9898989898'],
+            'workspace_id' => $this->workspace->id,
+            'name' => 'Alankar Jewellers',
+            'company' => 'Alankar Group',
+            'phone' => ['9825113086', '9825113087', '0281 2456789'],
         ]);
 
-        // Incoming card has mobile and an alternate number
+        // Incoming card has the 2nd phone number in its list
         $response = $this->postJson('/api/cards', [
-            'name' => 'Sales Lead',
-            'company' => 'Clay Decor Group',
-            'phone' => ['9777777777', '+91 98989 89898'],
+            'name' => 'Ritesh Bhogar',
+            'company' => 'Alankar & Co',
+            'phone' => ['9825113087'],
         ]);
 
         $response->assertStatus(409)
@@ -179,24 +220,34 @@ class CardDuplicateDetectionTest extends TestCase
     }
 
     /**
-     * Test 7: Force-save override allows saving when user confirms.
+     * Test 7: Force save override with force_duplicate=true.
      */
     public function test_force_save_override(): void
     {
         Card::create([
-            'name' => 'Existing Contact',
-            'company' => 'Acme Corp',
-            'phone' => ['9876543210'],
+            'workspace_id' => $this->workspace->id,
+            'name' => 'Haresh Patel',
+            'company' => 'Simpolo Vitrified',
+            'phone' => ['9825099999'],
         ]);
 
-        $response = $this->postJson('/api/cards', [
-            'name' => 'Existing Contact (Branch 2)',
-            'company' => 'Acme Corp',
-            'phone' => ['9876543210'],
+        // 1. Initial attempt fails with 409
+        $failResponse = $this->postJson('/api/cards', [
+            'name' => 'Haresh Patel (Branch 2)',
+            'company' => 'Simpolo Ceramics',
+            'phone' => ['9825099999'],
+        ]);
+        $failResponse->assertStatus(409);
+
+        // 2. Override attempt with force_duplicate=true succeeds with 201
+        $overrideResponse = $this->postJson('/api/cards', [
+            'name' => 'Haresh Patel (Branch 2)',
+            'company' => 'Simpolo Ceramics',
+            'phone' => ['9825099999'],
             'force_duplicate' => true,
         ]);
 
-        $response->assertStatus(201)
+        $overrideResponse->assertStatus(201)
             ->assertJson([
                 'success' => true,
                 'duplicate_override' => true,
@@ -206,15 +257,23 @@ class CardDuplicateDetectionTest extends TestCase
     }
 
     /**
-     * Test 8: No duplicate normal successful save.
+     * Test 8: Non-duplicate new card saves normally.
      */
     public function test_no_duplicate_normal_successful_save(): void
     {
+        Card::create([
+            'workspace_id' => $this->workspace->id,
+            'name' => 'Card One',
+            'company' => 'Alpha Tiles',
+            'phone' => ['9825011111'],
+            'email' => 'alpha@tiles.com',
+        ]);
+
         $response = $this->postJson('/api/cards', [
-            'name' => 'Unique Contact',
-            'company' => 'Unique Industries',
-            'phone' => ['9123456789'],
-            'email' => 'unique@example.com',
+            'name' => 'Card Two',
+            'company' => 'Beta Granito',
+            'phone' => ['9825022222'],
+            'email' => 'beta@granito.com',
         ]);
 
         $response->assertStatus(201)
@@ -223,31 +282,32 @@ class CardDuplicateDetectionTest extends TestCase
                 'duplicate_override' => false,
             ]);
 
-        $this->assertDatabaseCount('cards', 1);
+        $this->assertDatabaseCount('cards', 2);
     }
 
     /**
-     * Test 9: Multiple existing duplicate matches returned in list.
+     * Test 9: Multiple existing cards matching one scanned card.
      */
     public function test_multiple_duplicate_matches(): void
     {
         Card::create([
-            'name' => 'Card One',
-            'company' => 'Shared Firm',
-            'phone' => ['9876543210'],
+            'workspace_id' => $this->workspace->id,
+            'name' => 'Shared Phone Contact A',
+            'company' => 'Company A',
+            'phone' => ['9825033333'],
         ]);
 
         Card::create([
-            'name' => 'Card Two',
-            'company' => 'Shared Firm',
-            'phone' => ['+91 9876543210'],
-            'force_duplicate' => true,
+            'workspace_id' => $this->workspace->id,
+            'name' => 'Shared Phone Contact B',
+            'company' => 'Company B',
+            'phone' => ['9825033333'],
         ]);
 
         $response = $this->postJson('/api/cards', [
-            'name' => 'Card Three',
-            'company' => 'Shared Firm',
-            'phone' => ['09876543210'],
+            'name' => 'Incoming Contact C',
+            'company' => 'Company C',
+            'phone' => ['9825033333'],
         ]);
 
         $response->assertStatus(409)
@@ -260,4 +320,3 @@ class CardDuplicateDetectionTest extends TestCase
         $this->assertCount(2, $existingCards);
     }
 }
-

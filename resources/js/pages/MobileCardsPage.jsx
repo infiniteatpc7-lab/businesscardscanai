@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import SwipeableCardItem from '../components/cards/SwipeableCardItem';
 import { downloadVCard, openWhatsApp, isLandlineNumber, initiatePhoneCall } from '../services/vcfHelper';
-import { deleteCard, saveCard } from '../services/cardApi';
+import { deleteCard, saveCard, getCardImageUrl } from '../services/cardApi';
 import { useToast } from '../context/ToastContext';
 
 export default function MobileCardsPage({
@@ -299,7 +299,7 @@ export default function MobileCardsPage({
                         {selectedCard.image_path && (
                             <div className="rounded-2xl overflow-hidden border border-zinc-200 bg-zinc-900 shadow-inner">
                                 <img
-                                    src={selectedCard.image_path}
+                                    src={getCardImageUrl(selectedCard) || selectedCard.image_path}
                                     alt="Scanned Card"
                                     className="w-full max-h-48 object-contain mx-auto"
                                 />

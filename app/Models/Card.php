@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Card extends Model
 {
@@ -12,6 +14,8 @@ class Card extends Model
      * @var list<string>
      */
     protected $fillable = [
+        'workspace_id',
+        'user_id',
         'company',
         'company_english',
         'name',
@@ -34,7 +38,7 @@ class Card extends Model
     ];
 
     /**
-     * Get the attributes that should be cast.
+     * The attributes that should be cast.
      *
      * @return array<string, string>
      */
@@ -46,5 +50,29 @@ class Card extends Model
             'raw_data' => 'array',
             'accuracy_score' => 'integer',
         ];
+    }
+
+    /**
+     * Get the workspace that owns the business card.
+     */
+    public function workspace(): BelongsTo
+    {
+        return $this->belongsTo(Workspace::class);
+    }
+
+    /**
+     * Get the user who scanned or saved the card.
+     */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Scope a query to only include cards in a given workspace.
+     */
+    public function scopeForWorkspace(Builder $query, int $workspaceId): Builder
+    {
+        return $query->where('workspace_id', $workspaceId);
     }
 }

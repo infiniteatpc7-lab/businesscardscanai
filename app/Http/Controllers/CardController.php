@@ -3,12 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\Card;
+use App\Models\Workspace;
 use App\Services\CardDuplicateDetector;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\Response;
 
 class CardController extends Controller
 {
@@ -25,11 +27,16 @@ class CardController extends Controller
     }
 
     /**
-     * Display a listing of saved cards.
+     * Display a listing of saved cards scoped to the authenticated user's workspace.
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Card::query()->latest();
+        /** @var Workspace $workspace */
+        $workspace = $request->attributes->get('workspace');
+
+        $query = Card::query()
+            ->forWorkspace($workspace->id)
+            ->latest();
 
         if ($search = $request->input('search')) {
             $query->where(function ($q) use ($search) {
@@ -50,56 +57,35 @@ class CardController extends Controller
 
     /**
      * Scan an uploaded card image using Gemini Multimodal Vision API.
+     * Uses private storage, strict image validation, and secure header authentication.
      */
     public function scan(Request $request): JsonResponse
     {
-        $request->validate([
-            'image' => 'nullable|file|mimes:jpeg,png,jpg,webp|max:16384',
-            'image_base64' => 'nullable|string',
-        ]);
+        $validatedImage = $this->validateAndExtractImage($request);
 
-        $apiKey = env('GEMINI_API_KEY');
-        if (! $apiKey) {
+        if (! $validatedImage['success']) {
             return response()->json([
                 'success' => false,
-                'message' => 'GEMINI_API_KEY is not configured in your .env file',
+                'message' => $validatedImage['error'],
+            ], $validatedImage['status'] ?? 422);
+        }
+
+        $apiKey = config('services.gemini.api_key');
+        if (! $apiKey) {
+            // Clean up stored image on configuration error
+            if (! empty($validatedImage['storage_path'])) {
+                Storage::disk('local')->delete($validatedImage['storage_path']);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'GEMINI_API_KEY is not configured in services.gemini.api_key',
             ], 500);
         }
 
-        $mimeType = 'image/jpeg';
-        $rawBytes = null;
-        $savedImagePath = null;
-
-        if ($request->hasFile('image')) {
-            $file = $request->file('image');
-            $mimeType = $file->getMimeType() ?: 'image/jpeg';
-            $rawBytes = file_get_contents($file->getRealPath());
-
-            $filename = 'cards/'.Str::uuid().'.'.($file->getClientOriginalExtension() ?: 'jpg');
-            Storage::disk('public')->put($filename, $rawBytes);
-            $savedImagePath = '/storage/'.$filename;
-        } elseif ($request->filled('image_base64')) {
-            $raw = $request->input('image_base64');
-            if (preg_match('/^data:(image\/[a-zA-Z0-9\+\-\.]+);base64,(.+)$/', $raw, $matches)) {
-                $mimeType = $matches[1];
-                $rawBytes = base64_decode($matches[2]);
-            } else {
-                $rawBytes = base64_decode($raw);
-            }
-
-            if ($rawBytes) {
-                $filename = 'cards/'.Str::uuid().'.jpg';
-                Storage::disk('public')->put($filename, $rawBytes);
-                $savedImagePath = '/storage/'.$filename;
-            }
-        }
-
-        if (! $rawBytes) {
-            return response()->json([
-                'success' => false,
-                'message' => 'No image file or base64 data received.',
-            ], 422);
-        }
+        $rawBytes = $validatedImage['raw_bytes'];
+        $mimeType = $validatedImage['mime_type'];
+        $storedPath = $validatedImage['storage_path'];
 
         // Optimize image resolution if too large for OCR (e.g. mobile photos > 1800px)
         $optimized = $this->optimizeImageBytes($rawBytes, $mimeType);
@@ -119,53 +105,61 @@ CRITICAL INSTRUCTIONS FOR REGIONAL & STYLIZED TYPOGRAPHY:
 5. Accurately calculate a realistic "accuracy_score" between 0 and 100 based on card image resolution, clarity, font legibility, completeness, and your confidence.
 6. Provide an "accuracy_reason" explaining your confidence, font legibility, and which elements were found or absent.
 
-Return STRICTLY a JSON object with this exact structure and nothing else (no markdown fences, just pure JSON):
+Return ONLY a valid, raw JSON object (strictly adhering to this JSON schema, no markdown wrapping, no backticks, no commentary):
 {
-  "company": "Company / Shop / Firm name in original script or English",
-  "company_english": "Transliterated or English name of company",
-  "name": "Person name in original script or English if present, else null",
-  "name_english": "Person name in English if present, else null",
-  "designation": "Designation/Title (e.g. Owner, Director, Manager) if present, else null",
-  "department": "Department if present, else null",
-  "phone": ["Array of phone numbers extracted"],
-  "email": "Email address if present, else null",
-  "website": "Website URL if present, else null",
-  "address": "Full postal address in original script",
-  "address_english": "Full postal address transliterated/in English",
-  "tagline_services": "Services offered, tagline, or product category if present, else null",
-  "tax_id": "GSTIN / VAT / PAN / Reg. No. if present, else null",
-  "social_profiles": ["Social media handles or WhatsApp icons if present"],
-  "detected_language": "Gujarati / Hindi / English / Multilingual",
+  "company": "Company / Shop name in original native script if regional, or English",
+  "company_english": "Transliterated company name in English Roman script",
+  "name": "Full name of person in original script or English",
+  "name_english": "Transliterated person name in English Roman script",
+  "designation": "Job title / Designation (e.g. Owner, Partner, Director, Proprietor)",
+  "department": "Department if mentioned (e.g. Sales, Export, Production)",
+  "phone": ["Array of phone and mobile numbers found"],
+  "email": "Primary email address or null",
+  "website": "Website URL or null",
+  "address": "Full street address with city and PIN code in original script",
+  "address_english": "Full street address translated/transliterated in English",
+  "tagline_services": "Core business tagline, products manufactured, or services offered",
+  "tax_id": "GST number / PAN number / VAT ID if present on card or null",
+  "social_profiles": ["Any WhatsApp, Instagram, Facebook, LinkedIn handles or numbers"],
+  "detected_language": "Gujarati | Hindi | Marathi | English | Multilingual",
   "accuracy_score": 95,
-  "accuracy_reason": "Detailed explanation of scan confidence, text clarity, and extracted fields"
+  "accuracy_reason": "High resolution, clearly printed Gujarati typography and English contact details."
 }
 EOT;
 
-        // Models to try in priority order
-        $candidateModels = ['gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-2.5-flash'];
-        $lastError = 'Unknown error';
-        $extractedData = null;
+        $preferredModel = config('services.gemini.model', 'gemini-2.5-flash');
+        $modelsToTry = array_values(array_unique(array_filter([
+            $preferredModel,
+            ...config('services.gemini.models', ['gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-2.5-flash']),
+        ])));
 
-        foreach ($candidateModels as $model) {
-            $result = $this->callGeminiApiCurl($apiKey, $model, $prompt, $mimeType, $base64Data);
+        $geminiResult = null;
+        $lastError = null;
 
-            if ($result['success']) {
-                $extractedData = $result['data'];
+        foreach ($modelsToTry as $modelName) {
+            $geminiResult = $this->callGeminiApiCurl($apiKey, $modelName, $prompt, $mimeType, $base64Data);
+            if ($geminiResult['success']) {
                 break;
-            } else {
-                $lastError = $result['error'];
-                Log::warning("Gemini error with {$model}: ".$lastError);
             }
+            $lastError = $geminiResult['error'] ?? 'Unknown error';
         }
 
-        if (! $extractedData) {
+        if (! $geminiResult || ! $geminiResult['success']) {
+            // Clean up stored image upon failed scan
+            if ($storedPath) {
+                Storage::disk('local')->delete($storedPath);
+            }
+
+            Log::error('Gemini Card Vision API failed: '.$lastError);
+
             return response()->json([
                 'success' => false,
-                'message' => 'Gemini Scan failed: '.$lastError,
-            ], 500);
+                'message' => 'AI OCR failed to extract card details: '.$lastError,
+            ], 502);
         }
 
-        $extractedData['image_path'] = $savedImagePath;
+        $extractedData = $geminiResult['data'];
+        $extractedData['image_path'] = $storedPath;
 
         return response()->json([
             'success' => true,
@@ -174,11 +168,12 @@ EOT;
     }
 
     /**
-     * Direct cURL call to Gemini REST API to bypass Guzzle php://temp Windows disk issues.
+     * Direct cURL call to Gemini REST API using secure header authentication (x-goog-api-key)
+     * and SSL certificate verification.
      */
     private function callGeminiApiCurl(string $apiKey, string $model, string $prompt, string $mimeType, string $base64Data): array
     {
-        $endpoint = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
+        $endpoint = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent";
 
         $payload = [
             'contents' => [
@@ -209,11 +204,13 @@ EOT;
             CURLOPT_HTTPHEADER => [
                 'Content-Type: application/json',
                 'Content-Length: '.strlen($jsonPayload),
+                'x-goog-api-key: '.$apiKey,
             ],
             CURLOPT_POSTFIELDS => $jsonPayload,
             CURLOPT_TIMEOUT => 45,
             CURLOPT_CONNECTTIMEOUT => 15,
-            CURLOPT_SSL_VERIFYPEER => false, // Prevents Windows SSL certificate bundle errors
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
         ]);
 
         $rawResponse = curl_exec($ch);
@@ -266,6 +263,98 @@ EOT;
     }
 
     /**
+     * Strictly validate image payload, MIME type, dimensions, and save to private storage.
+     */
+    private function validateAndExtractImage(Request $request): array
+    {
+        $rawBytes = null;
+        $extension = 'jpg';
+        $maxBytes = 16 * 1024 * 1024; // 16MB limit
+
+        if ($request->hasFile('image')) {
+            $request->validate([
+                'image' => 'required|file|max:16384',
+            ]);
+
+            $file = $request->file('image');
+            if (! $file->isValid()) {
+                return ['success' => false, 'error' => 'Uploaded file is corrupted or incomplete.', 'status' => 422];
+            }
+
+            if ($file->getSize() > $maxBytes) {
+                return ['success' => false, 'error' => 'Image exceeds 16MB limit.', 'status' => 413];
+            }
+
+            $rawBytes = file_get_contents($file->getRealPath());
+            $extension = strtolower($file->getClientOriginalExtension() ?: 'jpg');
+        } elseif ($request->filled('image_base64')) {
+            $raw = $request->input('image_base64');
+
+            // Prevent oversized base64 payloads
+            if (strlen($raw) > 25 * 1024 * 1024) {
+                return ['success' => false, 'error' => 'Base64 image payload exceeds maximum allowed size.', 'status' => 413];
+            }
+
+            if (preg_match('/^data:image\/(jpeg|png|webp);base64,(.+)$/', $raw, $matches)) {
+                $extension = $matches[1] === 'jpeg' ? 'jpg' : $matches[1];
+                $rawBytes = base64_decode($matches[2], true);
+            } else {
+                $rawBytes = base64_decode($raw, true);
+            }
+        }
+
+        if (! $rawBytes || strlen($rawBytes) < 50) {
+            return ['success' => false, 'error' => 'Invalid or missing image payload.', 'status' => 422];
+        }
+
+        if (strlen($rawBytes) > $maxBytes) {
+            return ['success' => false, 'error' => 'Image size exceeds maximum limit of 16MB.', 'status' => 413];
+        }
+
+        // Validate real MIME type using PHP fileinfo inspection
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $realMime = finfo_buffer($finfo, $rawBytes);
+        finfo_close($finfo);
+
+        $allowedMimes = [
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/webp' => 'webp',
+        ];
+
+        if (! array_key_exists($realMime, $allowedMimes)) {
+            return [
+                'success' => false,
+                'error' => 'Invalid image format. Only JPEG, PNG, and WebP are permitted.',
+                'status' => 422,
+            ];
+        }
+
+        $extension = $allowedMimes[$realMime];
+
+        // Validate image dimensions to prevent decompression bombs
+        $imageSize = @getimagesizefromstring($rawBytes);
+        if (! $imageSize || $imageSize[0] < 10 || $imageSize[1] < 10) {
+            return ['success' => false, 'error' => 'Image dimensions are invalid or corrupted.', 'status' => 422];
+        }
+
+        if ($imageSize[0] > 9000 || $imageSize[1] > 9000) {
+            return ['success' => false, 'error' => 'Image dimensions exceed maximum limit of 9000px.', 'status' => 422];
+        }
+
+        // Save safely into private storage (storage/app/private/cards)
+        $relativePath = 'cards/'.Str::uuid().'.'.$extension;
+        Storage::disk('local')->put($relativePath, $rawBytes);
+
+        return [
+            'success' => true,
+            'raw_bytes' => $rawBytes,
+            'mime_type' => $realMime,
+            'storage_path' => $relativePath,
+        ];
+    }
+
+    /**
      * Downscale high-resolution phone camera images to optimum OCR size (max 1800px).
      */
     private function optimizeImageBytes(string $bytes, string $mime): array
@@ -314,10 +403,13 @@ EOT;
     }
 
     /**
-     * Store a scanned or edited card in the database with duplicate detection.
+     * Store a scanned or edited card in the database with workspace-scoped duplicate detection.
      */
     public function store(Request $request, CardDuplicateDetector $duplicateDetector): JsonResponse
     {
+        /** @var Workspace $workspace */
+        $workspace = $request->attributes->get('workspace');
+
         $validated = $request->validate([
             'company' => 'nullable|string|max:255',
             'company_english' => 'nullable|string|max:255',
@@ -343,8 +435,8 @@ EOT;
 
         $forceDuplicate = filter_var($request->input('force_duplicate', false), FILTER_VALIDATE_BOOLEAN);
 
-        // Run duplicate detection against existing contacts
-        $duplicateResult = $duplicateDetector->detectDuplicates($validated);
+        // Run duplicate detection strictly against cards in the current workspace
+        $duplicateResult = $duplicateDetector->detectDuplicates($validated, $workspace->id);
 
         if ($duplicateResult['has_duplicates']) {
             if (! $forceDuplicate) {
@@ -365,6 +457,7 @@ EOT;
             }
 
             Log::info('Duplicate card save forced by user override', [
+                'workspace_id' => $workspace->id,
                 'name' => $validated['name'] ?? null,
                 'company' => $validated['company'] ?? null,
                 'match_count' => count($duplicateResult['matching_cards']),
@@ -373,6 +466,10 @@ EOT;
 
         // Remove non-model attribute before Eloquent create
         unset($validated['force_duplicate']);
+
+        // Explicitly assign workspace and creator user
+        $validated['workspace_id'] = $workspace->id;
+        $validated['user_id'] = $request->user()->id;
 
         $card = Card::create($validated);
 
@@ -385,11 +482,14 @@ EOT;
     }
 
     /**
-     * Display the specified card.
+     * Display the specified card scoped to the user's workspace.
      */
-    public function show(int $id): JsonResponse
+    public function show(Request $request, int $id): JsonResponse
     {
-        $card = Card::find($id);
+        /** @var Workspace $workspace */
+        $workspace = $request->attributes->get('workspace');
+
+        $card = Card::forWorkspace($workspace->id)->find($id);
 
         if (! $card) {
             return response()->json([
@@ -405,11 +505,24 @@ EOT;
     }
 
     /**
-     * Remove the specified card from storage.
+     * Remove the specified card with workspace and role authorization.
+     * Only Workspace Owners and Admins are permitted to delete cards.
      */
-    public function destroy(int $id): JsonResponse
+    public function destroy(Request $request, int $id): JsonResponse
     {
-        $card = Card::find($id);
+        /** @var Workspace $workspace */
+        $workspace = $request->attributes->get('workspace');
+        $role = $request->attributes->get('workspace_role');
+
+        // Enforce role authorization: Members cannot delete records
+        if (! in_array($role, ['owner', 'admin'], true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Only workspace owners and admins can delete cards.',
+            ], 403);
+        }
+
+        $card = Card::forWorkspace($workspace->id)->find($id);
 
         if (! $card) {
             return response()->json([
@@ -418,11 +531,62 @@ EOT;
             ], 404);
         }
 
+        // If card has a private stored image, delete it
+        if ($card->image_path && Storage::disk('local')->exists($card->image_path)) {
+            Storage::disk('local')->delete($card->image_path);
+        }
+
         $card->delete();
 
         return response()->json([
             'success' => true,
             'message' => 'Card deleted successfully',
         ]);
+    }
+
+    /**
+     * Securely serve a card's image strictly to members of the workspace.
+     */
+    public function image(Request $request, int $id): Response
+    {
+        /** @var Workspace $workspace */
+        $workspace = $request->attributes->get('workspace');
+
+        $card = Card::forWorkspace($workspace->id)->find($id);
+
+        if (! $card || ! $card->image_path) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Card image not found.',
+            ], 404);
+        }
+
+        // Check private local storage first
+        $localDisk = Storage::disk('local');
+        if ($localDisk->exists($card->image_path)) {
+            $resp = response()->file($localDisk->path($card->image_path));
+            $resp->setPrivate();
+            $resp->setMaxAge(3600);
+
+            return $resp;
+        }
+
+        // Check legacy public storage if applicable
+        if (str_starts_with($card->image_path, '/storage/')) {
+            $publicRelative = Str::after($card->image_path, '/storage/');
+            $publicDisk = Storage::disk('public');
+            if ($publicDisk->exists($publicRelative)) {
+                $resp = response()->file($publicDisk->path($publicRelative));
+                $resp->setPrivate();
+                $resp->setMaxAge(3600);
+
+                return $resp;
+            }
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Card image file missing on storage disk.',
+        ], 404);
     }
 }
