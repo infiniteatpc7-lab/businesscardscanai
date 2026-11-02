@@ -22,9 +22,9 @@ export function ToastProvider({ children }) {
         <ToastContext.Provider value={{ showToast, hideToast }}>
             {children}
             {toast && (
-                <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 animate-bounce duration-300">
+                <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 animate-bounce duration-300 w-[92%] max-w-md flex justify-center pointer-events-none">
                     <div
-                        className={`px-5 py-3 rounded-full shadow-2xl border backdrop-blur-md flex items-center gap-3 text-xs font-semibold ${
+                        className={`pointer-events-auto w-full px-5 py-3 rounded-full shadow-2xl border backdrop-blur-md flex items-center justify-center gap-3 text-xs font-semibold ${
                             toast.type === 'error'
                                 ? 'bg-rose-950/95 text-rose-100 border-rose-800'
                                 : toast.type === 'info'
@@ -39,7 +39,7 @@ export function ToastProvider({ children }) {
                         ) : (
                             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                         )}
-                        <span>{toast.message}</span>
+                        <span className="whitespace-nowrap truncate">{toast.message}</span>
 
                         {toast.action && (
                             <button
@@ -47,7 +47,7 @@ export function ToastProvider({ children }) {
                                     toast.action.onClick();
                                     hideToast();
                                 }}
-                                className="ml-1 pl-2.5 border-l border-zinc-700 text-amber-400 hover:text-amber-300 font-extrabold uppercase tracking-wider text-[11px] flex items-center gap-1 active:scale-95 transition-all"
+                                className="ml-1 pl-2.5 border-l border-zinc-700 text-amber-400 hover:text-amber-300 font-extrabold uppercase tracking-wider text-[11px] flex items-center gap-1 active:scale-95 transition-all shrink-0 whitespace-nowrap"
                             >
                                 <RotateCcw className="w-3 h-3" />
                                 <span>{toast.action.label || 'UNDO'}</span>
