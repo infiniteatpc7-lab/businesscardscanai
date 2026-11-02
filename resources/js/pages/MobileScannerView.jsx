@@ -17,7 +17,6 @@ import {
 } from 'lucide-react';
 import CardUploadDropzone from '../components/scanner/CardUploadDropzone';
 import CardFormEditor from '../components/scanner/CardFormEditor';
-import JsonViewer from '../components/scanner/JsonViewer';
 import DuplicateWarningModal from '../components/scanner/DuplicateWarningModal';
 import { scanCard, saveCard } from '../services/cardApi';
 import { downloadVCard, openWhatsApp, isLandlineNumber, initiatePhoneCall } from '../services/vcfHelper';
@@ -38,7 +37,6 @@ export default function MobileScannerView({
     const [scanProgress, setScanProgress] = useState('');
     const [scanError, setScanError] = useState(null);
     const [cardData, setCardData] = useState(null);
-    const [activeTab, setActiveTab] = useState('table'); // 'table' | 'json'
     const [isSaving, setIsSaving] = useState(false);
     const [duplicateWarning, setDuplicateWarning] = useState(null);
 
@@ -247,33 +245,13 @@ export default function MobileScannerView({
                             </span>
                         </div>
 
-                        {/* Switcher */}
-                        <div className="bg-zinc-100 p-0.5 rounded-xl flex items-center gap-1 border border-zinc-200/60 text-[11px] font-bold">
-                            <button
-                                onClick={() => setActiveTab('table')}
-                                className={`px-2.5 py-1 rounded-lg transition-all ${
-                                    activeTab === 'table' ? 'bg-white text-zinc-950 shadow-sm' : 'text-zinc-500'
-                                }`}
-                            >
-                                Form
-                            </button>
-                            <button
-                                onClick={() => setActiveTab('json')}
-                                className={`px-2.5 py-1 rounded-lg transition-all ${
-                                    activeTab === 'json' ? 'bg-white text-zinc-950 shadow-sm' : 'text-zinc-500'
-                                }`}
-                            >
-                                JSON
-                            </button>
-                        </div>
+                        <span className="text-[11px] text-zinc-400 font-medium">
+                            Review & Edit
+                        </span>
                     </div>
 
-                    {/* Content View */}
-                    {activeTab === 'table' ? (
-                        <CardFormEditor cardData={cardData} onChange={handleFieldChange} />
-                    ) : (
-                        <JsonViewer data={cardData} onCopy={() => showToast('JSON copied to clipboard')} />
-                    )}
+                    {/* Extracted Form Editor */}
+                    <CardFormEditor cardData={cardData} onChange={handleFieldChange} />
 
                     {/* Quick Direct Actions: Save to Phone, WhatsApp / Call */}
                     {primaryPhone && (
