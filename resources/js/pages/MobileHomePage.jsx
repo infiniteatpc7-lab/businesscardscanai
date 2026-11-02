@@ -25,6 +25,16 @@ export default function MobileHomePage({
 
     return (
         <div className="space-y-3 pb-20">
+            {/* Dedicated Exhibition Line-Art Banner Section */}
+            <div className="w-full bg-white rounded-3xl overflow-hidden p-2 sm:p-3 border border-black/[0.04] flex items-center justify-center">
+                <img
+                    src="/images/business-exhibition-banner.webp"
+                    alt="Business Exhibition"
+                    className="w-full h-[110px] sm:h-[190px] object-contain select-none pointer-events-none"
+                    loading="eager"
+                />
+            </div>
+
             {/* Bento Tile 1: Hero Scanner Action with bg.jpg background */}
             <div className="rounded-3xl p-5 sm:p-6 text-white shadow-behance border border-black/10 relative overflow-hidden bg-zinc-950">
                 {/* Background Image (Preserved exactly as newly added) */}

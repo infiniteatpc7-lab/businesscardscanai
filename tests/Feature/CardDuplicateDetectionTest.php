@@ -260,3 +260,4 @@ class CardDuplicateDetectionTest extends TestCase
         $this->assertCount(2, $existingCards);
     }
 }
+
