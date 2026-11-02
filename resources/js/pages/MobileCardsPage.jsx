@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import SwipeableCardItem from '../components/cards/SwipeableCardItem';
 import { downloadVCard, openWhatsApp, isLandlineNumber, initiatePhoneCall } from '../services/vcfHelper';
-import { deleteCard, saveCard, getCardImageUrl } from '../services/cardApi';
+import { deleteCard, saveCard, getCardImageUrl, fetchCardImageBlob } from '../services/cardApi';
 import { useToast } from '../context/ToastContext';
 
 export default function MobileCardsPage({
@@ -33,6 +33,7 @@ export default function MobileCardsPage({
     const [searchTerm, setSearchTerm] = useState('');
     const [filterScript, setFilterScript] = useState('all'); // 'all' | 'gujarati' | 'english'
     const [selectedCard, setSelectedCard] = useState(initialSelectedCard);
+    const [cardImageBlobUrl, setCardImageBlobUrl] = useState(null);
 
     useEffect(() => {
         if (initialSelectedCard) {
@@ -40,6 +41,29 @@ export default function MobileCardsPage({
             onClearSelectedCard?.();
         }
     }, [initialSelectedCard]);
+
+    useEffect(() => {
+        let active = true;
+        let createdUrl = null;
+
+        if (selectedCard?.id) {
+            fetchCardImageBlob(selectedCard.id).then((url) => {
+                if (active && url) {
+                    createdUrl = url;
+                    setCardImageBlobUrl(url);
+                }
+            });
+        } else {
+            setCardImageBlobUrl(null);
+        }
+
+        return () => {
+            active = false;
+            if (createdUrl) {
+                URL.revokeObjectURL(createdUrl);
+            }
+        };
+    }, [selectedCard?.id]);
 
     // Filter cards
     const filteredCards = cards.filter((card) => {
@@ -296,10 +320,10 @@ export default function MobileCardsPage({
                         </div>
 
                         {/* Card Image Preview if available */}
-                        {selectedCard.image_path && (
+                        {(cardImageBlobUrl || getCardImageUrl(selectedCard) || selectedCard.image_path) && (
                             <div className="rounded-2xl overflow-hidden border border-zinc-200 bg-zinc-900 shadow-inner">
                                 <img
-                                    src={getCardImageUrl(selectedCard) || selectedCard.image_path}
+                                    src={cardImageBlobUrl || getCardImageUrl(selectedCard) || selectedCard.image_path}
                                     alt="Scanned Card"
                                     className="w-full max-h-48 object-contain mx-auto"
                                 />

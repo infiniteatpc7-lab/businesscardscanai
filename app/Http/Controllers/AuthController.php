@@ -7,13 +7,14 @@ use App\Models\User;
 use App\Models\Workspace;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
     /**
-     * User registration with automatic workspace creation.
+     * User registration with automatic workspace creation inside an atomic database transaction.
      */
     public function register(Request $request): JsonResponse
     {
@@ -24,46 +25,54 @@ class AuthController extends Controller
             'workspace_name' => 'nullable|string|max:255',
         ]);
 
-        $user = User::create([
-            'name' => $validated['name'],
-            'email' => $validated['email'],
-            'password' => Hash::make($validated['password']),
-        ]);
+        $result = DB::transaction(function () use ($validated) {
+            $user = User::create([
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+                'password' => Hash::make($validated['password']),
+            ]);
 
-        $wsName = $validated['workspace_name'] ?: ($user->name."'s Workspace");
-        $baseSlug = Str::slug($wsName) ?: 'workspace';
-        $slug = $baseSlug.'-'.Str::lower(Str::random(6));
+            $wsName = $validated['workspace_name'] ?: ($user->name."'s Workspace");
+            $baseSlug = Str::slug($wsName) ?: 'workspace';
+            $slug = $baseSlug.'-'.Str::lower(Str::random(6));
 
-        $workspace = Workspace::create([
-            'name' => $wsName,
-            'slug' => $slug,
-            'owner_id' => $user->id,
-        ]);
+            $workspace = Workspace::create([
+                'name' => $wsName,
+                'slug' => $slug,
+                'owner_id' => $user->id,
+            ]);
 
-        $workspace->users()->attach($user->id, ['role' => 'owner']);
+            $workspace->users()->attach($user->id, ['role' => 'owner']);
 
-        $tokenData = $user->createToken('register_token');
+            $tokenData = $user->createToken('register_token');
+
+            return [
+                'user' => $user,
+                'workspace' => $workspace,
+                'token' => $tokenData['plain_token'],
+            ];
+        });
 
         return response()->json([
             'success' => true,
             'message' => 'User and workspace registered successfully.',
-            'token' => $tokenData['plain_token'],
+            'token' => $result['token'],
             'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
+                'id' => $result['user']->id,
+                'name' => $result['user']->name,
+                'email' => $result['user']->email,
             ],
             'workspace' => [
-                'id' => $workspace->id,
-                'name' => $workspace->name,
-                'slug' => $workspace->slug,
+                'id' => $result['workspace']->id,
+                'name' => $result['workspace']->name,
+                'slug' => $result['workspace']->slug,
                 'role' => 'owner',
             ],
         ], 201);
     }
 
     /**
-     * User login.
+     * User login with generic failure response to prevent user enumeration.
      */
     public function login(Request $request): JsonResponse
     {
@@ -77,7 +86,7 @@ class AuthController extends Controller
         if (! $user || ! Hash::check($credentials['password'], $user->password)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Invalid email or password.',
+                'message' => 'Invalid credentials.',
             ], 401);
         }
 
@@ -103,18 +112,17 @@ class AuthController extends Controller
     }
 
     /**
-     * Log out and revoke the current API token.
+     * Log out and revoke exclusively the current authenticated Bearer token.
      */
     public function logout(Request $request): JsonResponse
     {
         $bearerToken = $request->bearerToken();
-        if (! $bearerToken) {
-            $bearerToken = $request->header('X-Api-Token') ?: $request->query('token');
-        }
 
         if ($bearerToken) {
             $hashed = hash('sha256', $bearerToken);
-            ApiToken::where('token', $hashed)->delete();
+            ApiToken::where('user_id', $request->user()->id)
+                ->where('token', $hashed)
+                ->delete();
         }
 
         return response()->json([
@@ -184,49 +192,6 @@ class AuthController extends Controller
                 'name' => $workspace->name,
                 'slug' => $workspace->slug,
                 'role' => $workspace->getUserRole($user),
-            ],
-        ]);
-    }
-
-    /**
-     * Seamless client bootstrap: provides a session/token for the default workspace user
-     * so that the existing mobile app functions immediately on first load without friction.
-     */
-    public function bootstrap(): JsonResponse
-    {
-        $defaultUser = User::first();
-        if (! $defaultUser) {
-            $defaultUser = User::create([
-                'name' => 'Saunak K.',
-                'email' => 'booth@ceramix.com',
-                'password' => Hash::make('secret12345'),
-            ]);
-        }
-
-        $workspace = $defaultUser->currentWorkspace();
-        if (! $workspace) {
-            $workspace = Workspace::firstOrCreate(
-                ['slug' => 'default-workspace'],
-                ['name' => 'Default Workspace', 'owner_id' => $defaultUser->id]
-            );
-            $workspace->users()->syncWithoutDetaching([$defaultUser->id => ['role' => 'owner']]);
-        }
-
-        $tokenData = $defaultUser->createToken('session_bootstrap');
-
-        return response()->json([
-            'success' => true,
-            'token' => $tokenData['plain_token'],
-            'user' => [
-                'id' => $defaultUser->id,
-                'name' => $defaultUser->name,
-                'email' => $defaultUser->email,
-            ],
-            'workspace' => [
-                'id' => $workspace->id,
-                'name' => $workspace->name,
-                'slug' => $workspace->slug,
-                'role' => $workspace->getUserRole($defaultUser) ?? 'owner',
             ],
         ]);
     }

@@ -77,10 +77,12 @@ class CardController extends Controller
                 Storage::disk('local')->delete($validatedImage['storage_path']);
             }
 
+            Log::error('OCR vision service configuration error: services.gemini.api_key is not configured.');
+
             return response()->json([
                 'success' => false,
-                'message' => 'GEMINI_API_KEY is not configured in services.gemini.api_key',
-            ], 500);
+                'message' => 'The business card scanning service is currently unavailable. Please try again later.',
+            ], 503);
         }
 
         $rawBytes = $validatedImage['raw_bytes'];
@@ -150,11 +152,14 @@ EOT;
                 Storage::disk('local')->delete($storedPath);
             }
 
-            Log::error('Gemini Card Vision API failed: '.$lastError);
+            Log::error('Gemini Card Vision API processing failure', [
+                'error' => $lastError,
+                'models_attempted' => $modelsToTry,
+            ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'AI OCR failed to extract card details: '.$lastError,
+                'message' => 'Unable to extract business card details. Please ensure the card is clear, well-lit, and try again.',
             ], 502);
         }
 

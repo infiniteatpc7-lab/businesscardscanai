@@ -46,13 +46,20 @@ class ApiToken extends Model
     }
 
     /**
-     * Generate a new secure API token for the given user.
+     * Generate a new secure API token for the given user with configurable expiration.
      * Returns an array with ['token' => $plainTextToken, 'model' => $apiToken].
      */
     public static function createTokenForUser(User $user, string $name = 'default', ?\DateTimeInterface $expiresAt = null): array
     {
         $plainToken = 'bcs_'.Str::random(40);
         $hashedToken = hash('sha256', $plainToken);
+
+        if ($expiresAt === null) {
+            $expirationMinutes = config('auth.api_token_expiration_minutes', 43200);
+            if ($expirationMinutes) {
+                $expiresAt = now()->addMinutes($expirationMinutes);
+            }
+        }
 
         $model = static::create([
             'user_id' => $user->id,

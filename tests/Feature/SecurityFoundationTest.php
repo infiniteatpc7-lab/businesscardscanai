@@ -38,11 +38,32 @@ class SecurityFoundationTest extends TestCase
             'user' => $user,
             'workspace' => $workspace,
             'token' => $tokenData['plain_token'],
+            'token_model' => $tokenData['token_model'],
         ];
     }
 
     /**
-     * 1. Unauthenticated requests must be rejected with 401.
+     * 1. Insecure public bootstrap endpoint no longer exists (must return 404).
+     */
+    public function test_public_bootstrap_endpoint_no_longer_exists(): void
+    {
+        $this->getJson('/api/auth/bootstrap')->assertStatus(404);
+        $this->postJson('/api/auth/bootstrap')->assertStatus(404);
+    }
+
+    /**
+     * 2. Hardcoded default users are never created.
+     */
+    public function test_hardcoded_default_users_are_never_created(): void
+    {
+        $this->assertDatabaseMissing('users', [
+            'email' => 'booth@ceramix.com',
+        ]);
+        $this->assertEquals(0, User::count());
+    }
+
+    /**
+     * 3. Unauthenticated requests are rejected with 401 across all protected routes.
      */
     public function test_unauthenticated_requests_are_rejected(): void
     {
@@ -55,9 +76,32 @@ class SecurityFoundationTest extends TestCase
     }
 
     /**
-     * 2. Registration automatically creates workspace, owner role, and API token.
+     * 4. Query-string tokens and X-Api-Token headers are strictly rejected; only Bearer header works.
      */
-    public function test_user_registration_creates_workspace_and_issues_token(): void
+    public function test_query_string_and_custom_header_tokens_are_rejected(): void
+    {
+        $data = $this->createWorkspaceUser('Token Security Tester', 'tokensec@example.com');
+        $plainToken = $data['token'];
+
+        // Query string token must fail with 401
+        $this->getJson("/api/cards?token={$plainToken}")->assertStatus(401);
+        $this->getJson("/api/auth/user?token={$plainToken}")->assertStatus(401);
+
+        // X-Api-Token header must fail with 401
+        $this->withHeader('X-Api-Token', $plainToken)
+            ->getJson('/api/cards')
+            ->assertStatus(401);
+
+        // Standard Authorization: Bearer must succeed with 200
+        $this->withHeader('Authorization', "Bearer {$plainToken}")
+            ->getJson('/api/cards')
+            ->assertStatus(200);
+    }
+
+    /**
+     * 5. Registration creates user, workspace, membership and token inside a database transaction.
+     */
+    public function test_user_registration_creates_workspace_atomically(): void
     {
         $response = $this->postJson('/api/auth/register', [
             'name' => 'Ketan Patel',
@@ -85,54 +129,105 @@ class SecurityFoundationTest extends TestCase
     }
 
     /**
-     * 3. User login validates credentials and issues API token.
+     * 6. User login uses generic failure response to prevent user enumeration.
      */
-    public function test_user_login_authentication(): void
+    public function test_login_uses_generic_failure_response(): void
     {
-        $data = $this->createWorkspaceUser('Login User', 'login@example.com');
+        $this->createWorkspaceUser('Login User', 'login@example.com');
 
-        // Invalid password
-        $this->postJson('/api/auth/login', [
-            'email' => 'login@example.com',
-            'password' => 'wrongpass',
-        ])->assertStatus(401);
-
-        // Valid password
+        // Invalid password returns generic message
         $response = $this->postJson('/api/auth/login', [
             'email' => 'login@example.com',
-            'password' => 'password123',
+            'password' => 'wrongpass',
         ]);
 
-        $response->assertStatus(200)
+        $response->assertStatus(401)
             ->assertJson([
-                'success' => true,
-                'user' => ['email' => 'login@example.com'],
+                'success' => false,
+                'message' => 'Invalid credentials.',
             ]);
 
-        $this->assertNotEmpty($response->json('token'));
+        // Non-existent email returns identical generic message
+        $responseUnknown = $this->postJson('/api/auth/login', [
+            'email' => 'nobody@example.com',
+            'password' => 'wrongpass',
+        ]);
+
+        $responseUnknown->assertStatus(401)
+            ->assertJson([
+                'success' => false,
+                'message' => 'Invalid credentials.',
+            ]);
     }
 
     /**
-     * 4. User logout revokes API token.
+     * 7. Rate limiting protects login and registration endpoints against brute-force attacks.
      */
-    public function test_user_logout_revokes_token(): void
+    public function test_login_and_registration_rate_limiting(): void
     {
-        $data = $this->createWorkspaceUser('Logout User', 'logout@example.com');
+        $this->createWorkspaceUser('Throttled User', 'throttle@example.com');
 
-        $headers = ['Authorization' => 'Bearer '.$data['token']];
+        // 5 allowed login attempts per minute; 6th must return 429
+        for ($i = 0; $i < 5; $i++) {
+            $this->postJson('/api/auth/login', [
+                'email' => 'throttle@example.com',
+                'password' => 'wrongpass',
+            ])->assertStatus(401);
+        }
 
-        // Access works
-        $this->getJson('/api/auth/user', $headers)->assertStatus(200);
-
-        // Logout
-        $this->postJson('/api/auth/logout', [], $headers)->assertStatus(200);
-
-        // Next call fails
-        $this->getJson('/api/auth/user', $headers)->assertStatus(401);
+        $throttledResponse = $this->postJson('/api/auth/login', [
+            'email' => 'throttle@example.com',
+            'password' => 'wrongpass',
+        ]);
+        $throttledResponse->assertStatus(429);
     }
 
     /**
-     * 5. Workspace Isolation: Workspace A cannot view, access, or delete Workspace B records.
+     * 8. Token lifecycle: expired tokens cannot authenticate.
+     */
+    public function test_expired_tokens_cannot_authenticate(): void
+    {
+        $data = $this->createWorkspaceUser('Expired User', 'expired@example.com');
+        $user = $data['user'];
+
+        // Create an explicitly expired token
+        $expiredToken = $user->createToken('expired_token', now()->subHours(2));
+
+        $this->withHeader('Authorization', 'Bearer '.$expiredToken['plain_token'])
+            ->getJson('/api/cards')
+            ->assertStatus(401);
+    }
+
+    /**
+     * 9. Token lifecycle: logout revokes exclusively the current token.
+     */
+    public function test_logout_revokes_only_the_current_token(): void
+    {
+        $data = $this->createWorkspaceUser('Multi Token User', 'multitoken@example.com');
+        $user = $data['user'];
+
+        $token1 = $data['token'];
+        $token2Data = $user->createToken('second_device_token');
+        $token2 = $token2Data['plain_token'];
+
+        // Both tokens work initially
+        $this->withHeader('Authorization', "Bearer {$token1}")->getJson('/api/auth/user')->assertStatus(200);
+        $this->withHeader('Authorization', "Bearer {$token2}")->getJson('/api/auth/user')->assertStatus(200);
+
+        // Logout using Token 1
+        $this->withHeader('Authorization', "Bearer {$token1}")
+            ->postJson('/api/auth/logout')
+            ->assertStatus(200);
+
+        // Token 1 is revoked and now receives 401
+        $this->withHeader('Authorization', "Bearer {$token1}")->getJson('/api/auth/user')->assertStatus(401);
+
+        // Token 2 remains valid and active
+        $this->withHeader('Authorization', "Bearer {$token2}")->getJson('/api/auth/user')->assertStatus(200);
+    }
+
+    /**
+     * 10. Workspace Isolation: Workspace A cannot view, access, or delete Workspace B records.
      */
     public function test_workspace_isolation(): void
     {
@@ -179,7 +274,7 @@ class SecurityFoundationTest extends TestCase
     }
 
     /**
-     * 6. Workspace Role Authorization: Members cannot delete cards, Owners/Admins can.
+     * 11. Workspace Role Authorization: Members cannot delete cards, Owners/Admins can.
      */
     public function test_role_authorization_for_deletion(): void
     {
@@ -228,7 +323,7 @@ class SecurityFoundationTest extends TestCase
     }
 
     /**
-     * 7. Image validation strictly rejects invalid MIME types and fake files.
+     * 12. Image validation strictly rejects invalid MIME types and fake files.
      */
     public function test_image_validation_rejects_invalid_files(): void
     {
@@ -249,9 +344,9 @@ class SecurityFoundationTest extends TestCase
     }
 
     /**
-     * 8. Private image storage and controlled access route.
+     * 13. Private image storage requires Bearer authentication and rejects query-string tokens.
      */
-    public function test_private_image_storage_controlled_access(): void
+    public function test_private_image_storage_controlled_access_via_bearer_only(): void
     {
         Storage::fake('local');
 
@@ -271,39 +366,25 @@ class SecurityFoundationTest extends TestCase
         $headersA = ['Authorization' => 'Bearer '.$wsA['token']];
         $headersB = ['Authorization' => 'Bearer '.$wsB['token']];
 
-        // Workspace B cannot access Workspace A's card image
+        // 1. Query parameter token must be rejected with 401
+        $this->get("/api/cards/{$card->id}/image?token=".$wsA['token'])->assertStatus(401);
+
+        // 2. Workspace B with Bearer header cannot access Workspace A's card image (404)
         $this->getJson("/api/cards/{$card->id}/image", $headersB)->assertStatus(404);
 
-        // Workspace A can access via controlled endpoint
-        $response = $this->get("/api/cards/{$card->id}/image?token=".$wsA['token']);
+        // 3. Workspace A with Bearer header can access securely
+        $response = $this->get("/api/cards/{$card->id}/image", $headersA);
         $response->assertStatus(200);
         $this->assertStringContainsString('private', (string) $response->headers->get('Cache-Control'));
     }
 
     /**
-     * 9. Gemini Configuration is accessible via config() and not directly via env().
+     * 14. Gemini Configuration is accessible via config() and not directly via env().
      */
     public function test_gemini_configuration_is_present_in_services_config(): void
     {
         $this->assertNotEmpty(config('services.gemini.model'));
         $this->assertIsArray(config('services.gemini.models'));
         $this->assertContains('gemini-2.5-flash', config('services.gemini.models'));
-    }
-
-    /**
-     * 10. Bootstrap endpoint provides default user, workspace, and token.
-     */
-    public function test_auth_bootstrap_endpoint(): void
-    {
-        $response = $this->getJson('/api/auth/bootstrap');
-
-        $response->assertStatus(200)
-            ->assertJson([
-                'success' => true,
-            ]);
-
-        $this->assertNotEmpty($response->json('token'));
-        $this->assertNotEmpty($response->json('user'));
-        $this->assertNotEmpty($response->json('workspace'));
     }
 }

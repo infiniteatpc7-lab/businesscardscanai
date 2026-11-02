@@ -5,8 +5,9 @@ import MobileHomePage from './pages/MobileHomePage';
 import MobileCardsPage from './pages/MobileCardsPage';
 import MobileScannerView from './pages/MobileScannerView';
 import MobileProfilePage from './pages/MobileProfilePage';
+import AuthModal from './components/auth/AuthModal';
 import { ToastProvider, useToast } from './context/ToastContext';
-import { fetchCards } from './services/cardApi';
+import { fetchCards, fetchAuthUser, logoutUser, getStoredToken } from './services/cardApi';
 
 function MobileAppContent() {
     const { showToast } = useToast();
@@ -14,10 +15,19 @@ function MobileAppContent() {
     const [cards, setCards] = useState([]);
     const [selectedCardForModal, setSelectedCardForModal] = useState(null);
 
+    // Authentication state
+    const [authUser, setAuthUser] = useState(null);
+    const [authWorkspace, setAuthWorkspace] = useState(null);
+    const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+
     // Fetch cards from backend API
     const loadCards = async () => {
         try {
             const res = await fetchCards();
+            if (res.unauthenticated) {
+                setIsAuthModalOpen(true);
+                return;
+            }
             if (res.success && Array.isArray(res.cards)) {
                 setCards(res.cards);
             }
@@ -26,9 +36,61 @@ function MobileAppContent() {
         }
     };
 
+    // Verify authentication on mount
+    const checkAuthStatus = async () => {
+        const token = getStoredToken();
+        if (!token) {
+            setIsAuthModalOpen(true);
+            return;
+        }
+
+        try {
+            const res = await fetchAuthUser();
+            if (res.success && res.user) {
+                setAuthUser(res.user);
+                setAuthWorkspace(res.current_workspace);
+                loadCards();
+            } else {
+                setAuthUser(null);
+                setAuthWorkspace(null);
+                setIsAuthModalOpen(true);
+            }
+        } catch {
+            setIsAuthModalOpen(true);
+        }
+    };
+
     useEffect(() => {
-        loadCards();
+        checkAuthStatus();
+
+        // Global listener for 401 unauthenticated events
+        const handleUnauthorized = () => {
+            setAuthUser(null);
+            setAuthWorkspace(null);
+            setCards([]);
+            setIsAuthModalOpen(true);
+        };
+
+        window.addEventListener('auth:unauthorized', handleUnauthorized);
+        return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
     }, []);
+
+    const handleAuthSuccess = (data) => {
+        setAuthUser(data.user);
+        setAuthWorkspace(data.workspace);
+        setIsAuthModalOpen(false);
+        loadCards();
+        showToast(`Welcome back, ${data.user.name}!`);
+    };
+
+    const handleLogout = async () => {
+        await logoutUser();
+        setAuthUser(null);
+        setAuthWorkspace(null);
+        setCards([]);
+        setIsAuthModalOpen(true);
+        showToast('Signed out successfully');
+    };
 
     const handleCardSaved = () => {
         loadCards();
@@ -68,6 +130,12 @@ function MobileAppContent() {
 
     return (
         <div className="min-h-screen bg-[#ECECEE] flex justify-center selection:bg-black selection:text-white">
+            {/* Auth Modal for Unauthenticated Users */}
+            <AuthModal
+                isOpen={isAuthModalOpen}
+                onSuccess={handleAuthSuccess}
+            />
+
             {/* Mobile Viewport Container (Native mobile on phones, sleek phone shell on desktop) */}
             <div className="w-full max-w-md min-h-screen bg-[#F4F4F6] relative shadow-2xl flex flex-col border-x border-black/[0.04]">
                 {/* Subtle background dot grid pattern */}
@@ -128,6 +196,9 @@ function MobileAppContent() {
                             <MobileProfilePage
                                 cardsCount={cards.length}
                                 onExportCSV={handleExportCSV}
+                                user={authUser}
+                                workspace={authWorkspace}
+                                onLogout={handleLogout}
                             />
                         )}
                     </div>

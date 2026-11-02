@@ -13,27 +13,28 @@ class AuthenticateApiToken
 {
     /**
      * Handle an incoming request.
+     * Tokens are accepted EXCLUSIVELY via the Authorization: Bearer <token> header.
+     * Query string credentials and custom headers are strictly disallowed.
      *
      * @param  Closure(Request): (Response)  $next
      */
     public function handle(Request $request, Closure $next): Response
     {
         $user = null;
+        $tokenRecord = null;
 
-        // 1. Check Bearer token or X-Api-Token header or token query parameter
+        // 1. Accept API token exclusively through Authorization: Bearer header
         $bearerToken = $request->bearerToken();
-        if (! $bearerToken) {
-            $bearerToken = $request->header('X-Api-Token') ?: $request->query('token');
-        }
 
         if ($bearerToken) {
             $tokenRecord = ApiToken::findToken($bearerToken);
             if ($tokenRecord && $tokenRecord->user) {
                 $user = $tokenRecord->user;
+                $request->attributes->set('current_api_token', $tokenRecord);
             }
         }
 
-        // 2. Fallback to existing session authentication if available
+        // 2. Fallback to existing framework auth session (e.g. for testing or stateful sessions)
         if (! $user && auth()->check()) {
             $user = auth()->user();
         }

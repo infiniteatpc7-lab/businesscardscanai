@@ -8,30 +8,47 @@ import {
     Languages,
     ShieldCheck,
     Database,
-    CheckCircle2
+    CheckCircle2,
+    LogOut
 } from 'lucide-react';
 
 export default function MobileProfilePage({
     cardsCount = 0,
-    onExportCSV
+    onExportCSV,
+    user = null,
+    workspace = null,
+    onLogout
 }) {
+    const displayName = user?.name || 'Saunak K.';
+    const displayEmail = user?.email || 'booth@ceramix.com';
+    const displayWorkspace = workspace?.name || 'Ceramix India Expo 2026';
+    const displayRole = (workspace?.role || 'owner').toUpperCase();
+
+    // Get initials for avatar
+    const initials = displayName
+        .split(' ')
+        .map((part) => part[0])
+        .slice(0, 2)
+        .join('')
+        .toUpperCase() || 'SK';
+
     return (
         <div className="space-y-4 pb-24">
             {/* Profile Bento Tile */}
             <div className="bg-white rounded-3xl p-5 shadow-behance border border-black/[0.04] space-y-4">
                 <div className="flex items-center gap-3.5">
                     <div className="w-14 h-14 rounded-2xl bg-zinc-950 text-white flex items-center justify-center text-lg font-extrabold shadow-sm">
-                        SK
+                        {initials}
                     </div>
                     <div className="space-y-0.5">
                         <div className="flex items-center gap-2">
-                            <h3 className="font-extrabold text-base text-zinc-950">Saunak K.</h3>
+                            <h3 className="font-extrabold text-base text-zinc-950">{displayName}</h3>
                             <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                Booth Lead
+                                {displayRole}
                             </span>
                         </div>
-                        <p className="text-xs text-zinc-500 font-medium">Ceramix India Expo 2026</p>
-                        <p className="text-[10px] text-zinc-400 font-mono">Booth #B-104 · Hall 2</p>
+                        <p className="text-xs text-zinc-500 font-medium">{displayWorkspace}</p>
+                        <p className="text-[10px] text-zinc-400 font-mono">{displayEmail}</p>
                     </div>
                 </div>
             </div>
@@ -100,9 +117,9 @@ export default function MobileProfilePage({
                 </div>
             </div>
 
-            {/* Data Management Bento Tile */}
+            {/* Data Management & Session Tile */}
             <div className="bg-white rounded-3xl p-5 shadow-behance border border-black/[0.04] space-y-3">
-                <h4 className="text-xs font-bold text-zinc-950">Data & Export</h4>
+                <h4 className="text-xs font-bold text-zinc-950">Data & Security</h4>
 
                 <div className="space-y-2">
                     <button
@@ -112,6 +129,16 @@ export default function MobileProfilePage({
                         <FileSpreadsheet className="w-4 h-4 text-zinc-700" />
                         <span>Export All Contacts as CSV</span>
                     </button>
+
+                    {onLogout && (
+                        <button
+                            onClick={onLogout}
+                            className="w-full py-3 px-4 rounded-2xl bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-2 border border-red-200/60"
+                        >
+                            <LogOut className="w-4 h-4 text-red-600" />
+                            <span>Sign Out of Workspace</span>
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -123,4 +150,3 @@ export default function MobileProfilePage({
         </div>
     );
 }
-

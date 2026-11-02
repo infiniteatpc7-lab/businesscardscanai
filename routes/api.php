@@ -4,11 +4,10 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CardController;
 use Illuminate\Support\Facades\Route;
 
-// Authentication routes (Public)
+// Authentication routes (Public with rate limiting to prevent brute-force and resource abuse)
 Route::prefix('auth')->group(function () {
-    Route::post('/register', [AuthController::class, 'register']);
-    Route::post('/login', [AuthController::class, 'login']);
-    Route::get('/bootstrap', [AuthController::class, 'bootstrap']);
+    Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:10,1');
+    Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:5,1');
 
     // Authenticated Auth Actions
     Route::middleware('api.auth')->group(function () {

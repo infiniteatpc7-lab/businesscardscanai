@@ -59,37 +59,26 @@ return new class extends Migration
             'updated_at' => $now,
         ]);
 
-        // Create default user if no users exist
+        // Link existing user if one exists (never create hardcoded default user)
         $existingUser = DB::table('users')->first();
-        if (! $existingUser) {
-            $defaultUserId = DB::table('users')->insertGetId([
-                'name' => 'Saunak K.',
-                'email' => 'booth@ceramix.com',
-                'password' => Hash::make('secret12345'),
+        if ($existingUser) {
+            DB::table('workspaces')->where('id', $defaultWorkspaceId)->update([
+                'owner_id' => $existingUser->id,
+            ]);
+
+            DB::table('workspace_user')->insert([
+                'workspace_id' => $defaultWorkspaceId,
+                'user_id' => $existingUser->id,
+                'role' => 'owner',
                 'created_at' => $now,
                 'updated_at' => $now,
             ]);
-        } else {
-            $defaultUserId = $existingUser->id;
         }
-
-        // Link user to workspace as owner
-        DB::table('workspaces')->where('id', $defaultWorkspaceId)->update([
-            'owner_id' => $defaultUserId,
-        ]);
-
-        DB::table('workspace_user')->insert([
-            'workspace_id' => $defaultWorkspaceId,
-            'user_id' => $defaultUserId,
-            'role' => 'owner',
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
 
         // Safely migrate all existing cards into default workspace so 0 cards are lost
         DB::table('cards')->whereNull('workspace_id')->update([
             'workspace_id' => $defaultWorkspaceId,
-            'user_id' => $defaultUserId,
+            'user_id' => $existingUser?->id,
         ]);
     }
 

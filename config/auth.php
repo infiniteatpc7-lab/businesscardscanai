@@ -114,4 +114,15 @@ return [
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
 
+    /*
+    |--------------------------------------------------------------------------
+    | API Token Expiration
+    |--------------------------------------------------------------------------
+    |
+    | Define the expiration window in minutes for issued API tokens.
+    | Default: 43200 minutes (30 days). Can be configured via API_TOKEN_EXPIRATION_MINUTES.
+    |
+    */
+    'api_token_expiration_minutes' => env('API_TOKEN_EXPIRATION_MINUTES', 43200),
+
 ];

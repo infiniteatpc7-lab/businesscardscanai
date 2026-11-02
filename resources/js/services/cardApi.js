@@ -1,5 +1,7 @@
 /**
  * API Service for Business Card Scanner, Contacts, and Authentication
+ * Strictly uses Authorization: Bearer <token> header.
+ * No credentials in URLs or query strings.
  */
 
 const TOKEN_KEY = 'bcs_auth_token';
@@ -21,39 +23,11 @@ export function clearStoredToken() {
 }
 
 /**
- * Ensures an active API token is present.
- * If absent, calls /api/auth/bootstrap to obtain a token for the default workspace session.
+ * Authenticated fetch helper with Bearer token injection.
+ * Credentials are sent EXCLUSIVELY via Authorization header.
  */
-export async function ensureAuthToken() {
-    let token = getStoredToken();
-    if (token) {
-        return token;
-    }
-
-    try {
-        const res = await fetch('/api/auth/bootstrap', {
-            headers: {
-                'Accept': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest',
-            },
-        });
-        const data = await res.json();
-        if (data.success && data.token) {
-            setStoredToken(data.token);
-            return data.token;
-        }
-    } catch (e) {
-        console.error('Failed to bootstrap auth token:', e);
-    }
-
-    return null;
-}
-
-/**
- * Authenticated fetch helper with Bearer token injection and auto-retry on 401.
- */
-async function authFetch(url, options = {}, isRetry = false) {
-    let token = await ensureAuthToken();
+export async function authFetch(url, options = {}) {
+    const token = getStoredToken();
 
     const headers = {
         'Accept': 'application/json',
@@ -70,14 +44,9 @@ async function authFetch(url, options = {}, isRetry = false) {
         headers,
     });
 
-    // If 401 Unauthorized occurs, clear token and retry once with fresh bootstrap
-    if (response.status === 401 && !isRetry) {
+    if (response.status === 401) {
         clearStoredToken();
-        const newToken = await ensureAuthToken();
-        if (newToken) {
-            headers['Authorization'] = `Bearer ${newToken}`;
-            return fetch(url, { ...options, headers });
-        }
+        window.dispatchEvent(new CustomEvent('auth:unauthorized'));
     }
 
     return response;
@@ -89,6 +58,9 @@ async function authFetch(url, options = {}, isRetry = false) {
 export async function fetchCards(search = '') {
     const url = search ? `/api/cards?search=${encodeURIComponent(search)}` : '/api/cards';
     const response = await authFetch(url);
+    if (response.status === 401) {
+        return { success: false, unauthenticated: true, cards: [] };
+    }
     return response.json();
 }
 
@@ -142,15 +114,30 @@ export async function deleteCard(id) {
 }
 
 /**
- * Get secure image URL for a card, attaching token if necessary.
+ * Securely fetch private card image via Bearer-authenticated blob request.
+ * Credentials never touch the URL.
+ */
+export async function fetchCardImageBlob(cardId) {
+    if (!cardId) return null;
+    try {
+        const response = await authFetch(`/api/cards/${cardId}/image`);
+        if (!response.ok) return null;
+        const blob = await response.blob();
+        return URL.createObjectURL(blob);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Resolve direct image string for public samples or client preview data URLs.
  */
 export function getCardImageUrl(card) {
     if (!card) return null;
-    const token = getStoredToken();
-    if (card.id) {
-        return `/api/cards/${card.id}/image${token ? `?token=${token}` : ''}`;
+    if (card.image_path && (card.image_path.startsWith('data:') || card.image_path.startsWith('/samples/'))) {
+        return card.image_path;
     }
-    return card.image_path || null;
+    return null;
 }
 
 /**
@@ -192,6 +179,9 @@ export async function registerUser(name, email, password, workspaceName = '') {
 
 export async function fetchAuthUser() {
     const response = await authFetch('/api/auth/user');
+    if (!response.ok) {
+        return { success: false };
+    }
     return response.json();
 }
 
