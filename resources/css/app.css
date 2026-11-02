@@ -56,3 +56,18 @@
 .animate-tab-fade {
     animation: tabFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+@keyframes toastSlideDown {
+    from {
+        opacity: 0;
+        transform: translate(-50%, -10px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, 0) scale(1);
+    }
+}
+
+.animate-toast-in {
+    animation: toastSlideDown 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
