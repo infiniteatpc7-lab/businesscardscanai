@@ -1,7 +1,7 @@
 import React from 'react';
-import { ScanLine } from 'lucide-react';
+import { ScanLine, Sparkles } from 'lucide-react';
 
-export default function MobileHeader() {
+export default function MobileHeader({ onLoadSample }) {
     return (
         <header className="sticky top-0 z-40 bg-[#F4F4F6]/90 backdrop-blur-xl border-b border-black/[0.05] px-4 py-2.5">
             <div className="max-w-md mx-auto flex items-center justify-between">
@@ -19,6 +19,18 @@ export default function MobileHeader() {
                         </p>
                     </div>
                 </div>
+
+                {/* Right: Sample trigger button */}
+                {onLoadSample && (
+                    <button
+                        onClick={onLoadSample}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold bg-white border border-zinc-200/80 text-zinc-800 hover:bg-zinc-50 shadow-sm active:scale-95 transition-all"
+                        title="Load Sample Gujarati Card (મોરબી ડેપો)"
+                    >
+                        <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                        <span>Sample</span>
+                    </button>
+                )}
             </div>
         </header>
     );
