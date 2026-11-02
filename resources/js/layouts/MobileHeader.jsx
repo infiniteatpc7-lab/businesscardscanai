@@ -26,7 +26,7 @@ export default function MobileHeader({
                     </div>
                 </div>
 
-                {/* Right: Badge matching 3rd screenshot & Sample trigger */}
+                {/* Right: Sample trigger & Active badge (matching sample button pill style) */}
                 <div className="flex items-center gap-2">
                     {onLoadSample && (
                         <button
@@ -39,9 +39,10 @@ export default function MobileHeader({
                         </button>
                     )}
 
-                    {/* Dark capsule Active badge matching Screenshot 3 */}
-                    <div className="px-3 py-1 rounded-xl bg-[#0D1913] border border-emerald-900/60 text-[#00E575] text-[11px] font-bold tracking-tight shadow-sm select-none">
-                        Active
+                    {/* Active status pill matching Sample button style */}
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-white border border-zinc-200/80 text-zinc-800 shadow-sm select-none">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+                        <span>Active</span>
                     </div>
                 </div>
             </div>
