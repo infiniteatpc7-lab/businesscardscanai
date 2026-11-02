@@ -10,11 +10,14 @@ import {
     MessageCircle,
     UserPlus,
     X,
+    Mail,
+    Globe,
     ChevronRight,
-    Languages
+    Languages,
+    ExternalLink
 } from 'lucide-react';
 import SwipeableCardItem from '../components/cards/SwipeableCardItem';
-import { downloadVCard, openWhatsApp, isLandlineNumber } from '../services/vcfHelper';
+import { downloadVCard, openWhatsApp, isLandlineNumber, initiatePhoneCall } from '../services/vcfHelper';
 import { deleteCard, saveCard } from '../services/cardApi';
 import { useToast } from '../context/ToastContext';
 
@@ -99,27 +102,29 @@ export default function MobileCardsPage({
                                     tagline_services: targetCard.tagline_services || '',
                                     tax_id: targetCard.tax_id || '',
                                     social_profiles: Array.isArray(targetCard.social_profiles) ? targetCard.social_profiles : [],
-                                    accuracy_score: targetCard.accuracy_score || 90,
+                                    accuracy_score: targetCard.accuracy_score || 95,
                                     accuracy_reason: targetCard.accuracy_reason || '',
                                     detected_language: targetCard.detected_language || 'Gujarati',
                                     image_path: targetCard.image_path || null,
                                     raw_data: targetCard.raw_data || null,
                                 };
-                                const restored = await saveCard(restorePayload);
-                                if (restored.success) {
-                                    showToast('Card restored successfully!');
-                                    onRefresh();
-                                }
+                                await saveCard(restorePayload);
+                                onRefresh();
+                                showToast(`Restored "${targetCard.company || targetCard.name || 'Card'}"`, 'success');
                             },
                         }
                     );
                 }
+            } else {
+                showToast(res.message || 'Failed to delete card', 'error');
             }
         } catch (err) {
             console.error('Delete error:', err);
             showToast('Failed to delete card', 'error');
         }
     };
+
+    const hasFiltersApplied = searchTerm.trim().length > 0 || filterScript !== 'all';
 
     return (
         <div className="space-y-4 pb-24">
@@ -132,8 +137,16 @@ export default function MobileCardsPage({
                         placeholder="Search company, phone, name, city..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full bg-zinc-50 border border-zinc-200/80 pl-10 pr-4 py-2.5 rounded-2xl text-xs font-medium focus:outline-none focus:border-black transition-colors"
+                        className="w-full bg-zinc-50 border border-zinc-200/80 pl-10 pr-9 py-2.5 rounded-2xl text-xs font-medium focus:outline-none focus:border-black transition-colors"
                     />
+                    {searchTerm && (
+                        <button
+                            onClick={() => setSearchTerm('')}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-zinc-200/80 hover:bg-zinc-300 text-zinc-600 flex items-center justify-center transition-colors"
+                        >
+                            <X className="w-3 h-3" />
+                        </button>
+                    )}
                 </div>
 
                 {/* Filter Chips */}
@@ -181,14 +194,23 @@ export default function MobileCardsPage({
                 </div>
             </div>
 
-            {/* Swipe hint */}
-            {filteredCards.length > 0 && (
-                <div className="flex items-center justify-center gap-2 text-[10px] text-zinc-400 font-medium px-2">
-                    <span>Swipe left to delete</span>
-                    <span>•</span>
-                    <span>Swipe right for WhatsApp</span>
-                </div>
-            )}
+            {/* Filter Result Counter / Swipe Hint */}
+            <div className="flex items-center justify-between px-2 text-[10px] text-zinc-400 font-medium">
+                {hasFiltersApplied ? (
+                    <span>
+                        Showing {filteredCards.length} of {cards.length} cards
+                    </span>
+                ) : (
+                    <span>{cards.length} cards in directory</span>
+                )}
+                {filteredCards.length > 0 && (
+                    <div className="flex items-center gap-1.5">
+                        <span>Swipe left to delete</span>
+                        <span>•</span>
+                        <span>Swipe right for WhatsApp</span>
+                    </div>
+                )}
+            </div>
 
             {/* Cards List (with Gmail-style Swipeable Items) */}
             {filteredCards.length === 0 ? (
@@ -196,16 +218,31 @@ export default function MobileCardsPage({
                     <div className="w-12 h-12 rounded-2xl bg-zinc-100 flex items-center justify-center mx-auto text-zinc-400">
                         <Search className="w-6 h-6" />
                     </div>
-                    <h3 className="text-sm font-bold text-zinc-950">No matching business cards</h3>
-                    <p className="text-xs text-zinc-500 max-w-xs mx-auto">
-                        {searchTerm ? `No results found for "${searchTerm}"` : 'No cards captured yet.'}
-                    </p>
-                    <button
-                        onClick={onNavigateToScan}
-                        className="px-4 py-2 rounded-full bg-black text-white text-xs font-bold active:scale-95 shadow-pill"
-                    >
-                        Scan a Card
-                    </button>
+                    <div className="space-y-1">
+                        <h3 className="text-sm font-bold text-zinc-950">No matching business cards</h3>
+                        <p className="text-xs text-zinc-500 max-w-xs mx-auto">
+                            {searchTerm ? `No results found for "${searchTerm}"` : 'No cards captured yet.'}
+                        </p>
+                    </div>
+                    <div className="flex items-center justify-center gap-2 pt-1">
+                        {hasFiltersApplied && (
+                            <button
+                                onClick={() => {
+                                    setSearchTerm('');
+                                    setFilterScript('all');
+                                }}
+                                className="px-3.5 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-semibold"
+                            >
+                                Clear Filters
+                            </button>
+                        )}
+                        <button
+                            onClick={onNavigateToScan}
+                            className="px-4 py-1.5 rounded-full bg-black text-white text-xs font-bold active:scale-95 shadow-pill"
+                        >
+                            Scan a Card
+                        </button>
+                    </div>
                 </div>
             ) : (
                 <div className="space-y-1">
@@ -221,7 +258,7 @@ export default function MobileCardsPage({
                 </div>
             )}
 
-            {/* Card Inspection Modal - Rendered via Portal at document.body with z-[100] to sit cleanly on top of bottom navigation and header */}
+            {/* Card Inspection Modal - Rendered via Portal at document.body with z-[100] */}
             {selectedCard && typeof document !== 'undefined' && createPortal(
                 <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
                     {/* Dark Backdrop */}
@@ -272,7 +309,7 @@ export default function MobileCardsPage({
                         {/* Language Tag */}
                         {selectedCard.detected_language && (
                             <div className="flex items-center gap-2">
-                                <span className="text-[10px] uppercase font-bold text-zinc-500 px-2.5 py-0.5 rounded-full bg-zinc-100">
+                                <span className="text-[10px] uppercase font-mono font-bold text-zinc-600 px-2.5 py-0.5 rounded-full bg-zinc-100">
                                     {selectedCard.detected_language}
                                 </span>
                             </div>
@@ -282,7 +319,7 @@ export default function MobileCardsPage({
                         <div className="space-y-2 text-xs">
                             {selectedCard.name && (
                                 <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60">
-                                    <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-0.5">Person</span>
+                                    <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-0.5">Contact Person</span>
                                     <span className="font-bold text-zinc-950 font-gujarati text-sm">{selectedCard.name}</span>
                                     {selectedCard.designation && (
                                         <span className="text-zinc-500 ml-1.5 text-xs">({selectedCard.designation})</span>
@@ -291,20 +328,66 @@ export default function MobileCardsPage({
                             )}
 
                             {Array.isArray(selectedCard.phone) && selectedCard.phone.length > 0 && (
-                                <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60 space-y-1.5">
+                                <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60 space-y-2">
                                     <span className="text-[10px] uppercase font-bold text-zinc-400 block">Phone Numbers</span>
-                                    <div className="flex flex-wrap gap-2">
-                                        {selectedCard.phone.map((ph, idx) => (
-                                            <a
-                                                key={idx}
-                                                href={`tel:${ph}`}
-                                                className="font-mono font-bold text-xs text-zinc-950 bg-white px-2.5 py-1 rounded-xl border border-zinc-200 hover:bg-zinc-100 flex items-center gap-1 active:scale-95 transition-all"
-                                            >
-                                                <Phone className="w-3 h-3 text-zinc-400" />
-                                                <span>{ph}</span>
-                                            </a>
-                                        ))}
+                                    <div className="space-y-1.5">
+                                        {selectedCard.phone.map((ph, idx) => {
+                                            const isPhoneLandline = isLandlineNumber(ph);
+                                            return (
+                                                <div key={idx} className="flex items-center justify-between gap-2 p-1.5 rounded-xl bg-white border border-zinc-200">
+                                                    <span className="font-mono font-bold text-xs text-zinc-950 pl-1">{ph}</span>
+                                                    <div className="flex items-center gap-1">
+                                                        <a
+                                                            href={`tel:${ph}`}
+                                                            className="px-2 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-[11px] font-semibold flex items-center gap-1"
+                                                        >
+                                                            <Phone className="w-3 h-3" />
+                                                            <span>Call</span>
+                                                        </a>
+                                                        {!isPhoneLandline && (
+                                                            <button
+                                                                onClick={() => openWhatsApp(ph, selectedCard)}
+                                                                className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-semibold flex items-center gap-1"
+                                                            >
+                                                                <MessageCircle className="w-3 h-3" />
+                                                                <span>WhatsApp</span>
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
+                                </div>
+                            )}
+
+                            {selectedCard.email && (
+                                <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60 flex items-center justify-between">
+                                    <div>
+                                        <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-0.5">Email</span>
+                                        <a href={`mailto:${selectedCard.email}`} className="font-mono text-zinc-900 font-semibold underline">
+                                            {selectedCard.email}
+                                        </a>
+                                    </div>
+                                    <Mail className="w-4 h-4 text-zinc-400" />
+                                </div>
+                            )}
+
+                            {selectedCard.website && (
+                                <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60 flex items-center justify-between">
+                                    <div>
+                                        <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-0.5">Website</span>
+                                        <a
+                                            href={selectedCard.website.startsWith('http') ? selectedCard.website : `https://${selectedCard.website}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="font-mono text-blue-600 font-semibold flex items-center gap-1"
+                                        >
+                                            <span>{selectedCard.website}</span>
+                                            <ExternalLink className="w-3 h-3" />
+                                        </a>
+                                    </div>
+                                    <Globe className="w-4 h-4 text-zinc-400" />
                                 </div>
                             )}
 

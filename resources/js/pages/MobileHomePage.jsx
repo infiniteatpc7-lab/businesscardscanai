@@ -8,7 +8,7 @@ import {
     Phone,
     FileSpreadsheet,
     Languages,
-    CheckCircle2,
+    User,
     ChevronRight
 } from 'lucide-react';
 
@@ -24,13 +24,10 @@ export default function MobileHomePage({
 
     return (
         <div className="space-y-4 pb-24">
-            {/* Bento Tile 1: Hero Scanner Action */}
-            <div className="bg-gradient-to-tr from-zinc-950 via-zinc-900 to-zinc-800 rounded-3xl p-6 text-white shadow-behance-lg relative overflow-hidden">
-                {/* Glow accent */}
-                <div className="absolute top-0 right-0 -mr-12 -mt-12 w-44 h-44 rounded-full bg-emerald-500/15 blur-2xl pointer-events-none"></div>
-
-                <div className="relative z-10 space-y-3">
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 backdrop-blur-md text-[10px] font-semibold text-emerald-400">
+            {/* Bento Tile 1: Hero Scanner Action (Solid premium dark, no gratuitous glow or blur) */}
+            <div className="bg-zinc-950 rounded-3xl p-6 text-white shadow-behance border border-zinc-800 relative overflow-hidden">
+                <div className="space-y-3">
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-[10px] font-semibold text-emerald-400">
                         <Languages className="w-3 h-3" />
                         <span>Gujarati · Hindi · English Recognition</span>
                     </div>
@@ -39,14 +36,14 @@ export default function MobileHomePage({
                         Ready to scan visiting cards at booth?
                     </h2>
 
-                    <p className="text-xs text-zinc-300 leading-relaxed">
-                        Instantly extract business details, 10-digit mobile numbers, and complete addresses directly into your contacts directory.
+                    <p className="text-xs text-zinc-400 leading-relaxed">
+                        Instantly extract business details, 10-digit mobile numbers, and complete postal addresses directly into your directory.
                     </p>
 
                     <div className="pt-2 flex flex-col gap-2">
                         <button
                             onClick={onNavigateToScan}
-                            className="w-full py-3.5 px-5 rounded-2xl bg-white text-zinc-950 text-xs font-extrabold hover:bg-zinc-100 transition-all shadow-pill active:scale-95 flex items-center justify-center gap-2"
+                            className="w-full py-3.5 px-5 rounded-2xl bg-white text-zinc-950 text-xs font-extrabold hover:bg-zinc-100 transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"
                         >
                             <ScanLine className="w-4 h-4 text-zinc-950" />
                             <span>Open Camera Scanner</span>
@@ -54,7 +51,7 @@ export default function MobileHomePage({
 
                         <button
                             onClick={onLoadSample}
-                            className="w-full py-2.5 px-4 rounded-xl bg-white/10 hover:bg-white/15 text-zinc-200 text-xs font-semibold backdrop-blur-md transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                            className="w-full py-2.5 px-4 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-semibold transition-all active:scale-95 flex items-center justify-center gap-1.5"
                         >
                             <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                             <span>Try Sample Gujarati Card (મોરબી ડેપો)</span>
@@ -63,7 +60,7 @@ export default function MobileHomePage({
                 </div>
             </div>
 
-            {/* Bento Row: Metrics (2 Columns) - No accuracy score numbers */}
+            {/* Bento Row: Metrics (2 Columns) */}
             <div className="grid grid-cols-2 gap-3">
                 {/* Metric 1: Stored Cards */}
                 <div
@@ -109,42 +106,66 @@ export default function MobileHomePage({
                         <h3 className="text-sm font-extrabold text-zinc-950">Recent Business Cards</h3>
                         <p className="text-[11px] text-zinc-500">Latest trade fair booth scans</p>
                     </div>
-                    <button
-                        onClick={onNavigateToCards}
-                        className="text-xs font-bold text-zinc-900 hover:text-black flex items-center gap-0.5"
-                    >
-                        <span>View All ({totalCount})</span>
-                        <ArrowRight className="w-3 h-3" />
-                    </button>
+                    {totalCount > 0 && (
+                        <button
+                            onClick={onNavigateToCards}
+                            className="text-xs font-bold text-zinc-900 hover:text-black flex items-center gap-0.5"
+                        >
+                            <span>View All ({totalCount})</span>
+                            <ArrowRight className="w-3 h-3" />
+                        </button>
+                    )}
                 </div>
 
                 {cards.length === 0 ? (
-                    <div className="text-center py-8 rounded-2xl bg-zinc-50 border border-zinc-200/60 p-4 space-y-2">
+                    <div className="text-center py-8 rounded-2xl bg-zinc-50 border border-zinc-200/60 p-4 space-y-3">
                         <div className="w-10 h-10 rounded-xl bg-white shadow-sm flex items-center justify-center mx-auto text-zinc-400">
                             <CreditCard className="w-5 h-5" />
                         </div>
-                        <h4 className="text-xs font-bold text-zinc-800">No cards stored yet</h4>
-                        <p className="text-[11px] text-zinc-500 max-w-xs mx-auto">
-                            Tap the Scan button below or load the sample card to start building your directory.
-                        </p>
+                        <div className="space-y-1">
+                            <h4 className="text-xs font-bold text-zinc-800">No cards stored yet</h4>
+                            <p className="text-[11px] text-zinc-500 max-w-xs mx-auto">
+                                Scan your first business card at the booth or load the sample card.
+                            </p>
+                        </div>
+                        <button
+                            onClick={onNavigateToScan}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-black text-white text-xs font-bold shadow-sm active:scale-95 transition-all"
+                        >
+                            <ScanLine className="w-3.5 h-3.5" />
+                            <span>Scan First Card</span>
+                        </button>
                     </div>
                 ) : (
-                    <div className="space-y-2.5">
+                    <div className="space-y-2">
                         {cards.slice(0, 4).map((card) => (
                             <div
                                 key={card.id}
                                 onClick={() => onSelectCard(card)}
-                                className="p-3.5 rounded-2xl bg-zinc-50/80 hover:bg-zinc-50 border border-zinc-200/60 active:scale-95 transition-all flex items-center justify-between gap-2.5 cursor-pointer"
+                                className="p-3.5 rounded-2xl bg-zinc-50/80 hover:bg-zinc-100/70 border border-zinc-200/60 active:scale-95 transition-all flex items-center justify-between gap-2.5 cursor-pointer"
                             >
-                                <div className="space-y-0.5 min-w-0">
-                                    <h4 className="font-gujarati font-bold text-xs text-zinc-950 truncate">
-                                        {card.company || card.name || 'Unnamed Business'}
-                                    </h4>
-                                    {card.company_english && card.company && (
-                                        <p className="text-[10px] text-zinc-500 truncate">
-                                            {card.company_english}
-                                        </p>
+                                <div className="space-y-1 min-w-0 flex-1">
+                                    <div className="flex items-center gap-2">
+                                        <h4 className="font-gujarati font-extrabold text-xs text-zinc-950 truncate">
+                                            {card.company || card.company_english || card.name || 'Unnamed Business'}
+                                        </h4>
+                                        {card.detected_language && (
+                                            <span className="text-[8px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-zinc-200/60 text-zinc-600 font-bold shrink-0">
+                                                {card.detected_language}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    {(card.name || card.designation) && (
+                                        <div className="flex items-center gap-1 text-[11px] text-zinc-600 truncate">
+                                            <User className="w-3 h-3 text-zinc-400 shrink-0" />
+                                            <span className="font-medium truncate font-gujarati">{card.name}</span>
+                                            {card.designation && (
+                                                <span className="text-zinc-400 text-[10px]">({card.designation})</span>
+                                            )}
+                                        </div>
                                     )}
+
                                     {Array.isArray(card.phone) && card.phone.length > 0 && (
                                         <p className="text-[10px] font-mono text-zinc-700 font-semibold flex items-center gap-1">
                                             <Phone className="w-2.5 h-2.5 text-zinc-400" />
@@ -153,7 +174,7 @@ export default function MobileHomePage({
                                     )}
                                 </div>
 
-                                <div className="shrink-0 flex items-center text-zinc-400">
+                                <div className="shrink-0 flex items-center text-zinc-400 pl-1">
                                     <ChevronRight className="w-4 h-4" />
                                 </div>
                             </div>
@@ -162,7 +183,7 @@ export default function MobileHomePage({
                 )}
             </div>
 
-            {/* Bento Tile 4: Export & Utilities */}
+            {/* Bento Tile 4: Export Contacts */}
             <div className="bg-white rounded-3xl p-5 shadow-behance border border-black/[0.04] flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-2xl bg-zinc-100 flex items-center justify-center text-zinc-800 shrink-0">
@@ -176,7 +197,8 @@ export default function MobileHomePage({
 
                 <button
                     onClick={onExportCSV}
-                    className="px-3.5 py-2 rounded-2xl bg-zinc-100 hover:bg-zinc-200 text-zinc-900 text-xs font-bold transition-all active:scale-95 shrink-0"
+                    disabled={totalCount === 0}
+                    className="px-3.5 py-2 rounded-2xl bg-zinc-100 hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-900 text-xs font-bold transition-all active:scale-95 shrink-0"
                 >
                     Export
                 </button>

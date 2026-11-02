@@ -12,14 +12,14 @@ import {
     UserPlus,
     X,
     Camera,
-    UploadCloud
+    UploadCloud,
+    Phone
 } from 'lucide-react';
 import CardUploadDropzone from '../components/scanner/CardUploadDropzone';
 import CardFormEditor from '../components/scanner/CardFormEditor';
 import JsonViewer from '../components/scanner/JsonViewer';
-import { AccuracyBadge } from '../components/common/Badge';
 import { scanCard, saveCard } from '../services/cardApi';
-import { downloadVCard, openWhatsApp } from '../services/vcfHelper';
+import { downloadVCard, openWhatsApp, isLandlineNumber, initiatePhoneCall } from '../services/vcfHelper';
 import { useImageProcessor } from '../hooks/useImageProcessor';
 import { useToast } from '../context/ToastContext';
 
@@ -35,6 +35,7 @@ export default function MobileScannerView({
     const [imageFileName, setImageFileName] = useState('');
     const [isScanning, setIsScanning] = useState(false);
     const [scanProgress, setScanProgress] = useState('');
+    const [scanError, setScanError] = useState(null);
     const [cardData, setCardData] = useState(null);
     const [activeTab, setActiveTab] = useState('table'); // 'table' | 'json'
     const [isSaving, setIsSaving] = useState(false);
@@ -42,6 +43,7 @@ export default function MobileScannerView({
     // Handle File Selection
     const handleFileSelected = async (file) => {
         setIsScanning(true);
+        setScanError(null);
         setScanProgress('Optimizing card photo...');
         const { file: optimizedFile, dataUrl } = await compressImage(file);
         setImageFile(optimizedFile);
@@ -53,6 +55,7 @@ export default function MobileScannerView({
     // Load Sample Gujarati Card
     const handleLoadSample = async () => {
         try {
+            setScanError(null);
             setImagePreview('/samples/morbi_depo.jpg');
             setImageFileName('morbi_depo.jpg');
             const res = await fetch('/samples/morbi_depo.jpg');
@@ -62,6 +65,7 @@ export default function MobileScannerView({
             executeScan(file);
         } catch (err) {
             console.error('Error loading sample:', err);
+            setScanError('Failed to load sample card');
             showToast('Failed to load sample card', 'error');
         }
     };
@@ -72,12 +76,21 @@ export default function MobileScannerView({
         setImageFile(null);
         setImageFileName('');
         setCardData(null);
+        setScanError(null);
+    };
+
+    // Retry Scan with current file
+    const handleRetry = () => {
+        if (imageFile) {
+            executeScan(imageFile, imagePreview);
+        }
     };
 
     // Execute Multimodal Scan
     const executeScan = async (file, base64Url = null) => {
         setIsScanning(true);
         setCardData(null);
+        setScanError(null);
         setScanProgress('Uploading business card...');
 
         const progressSteps = [
@@ -85,7 +98,7 @@ export default function MobileScannerView({
             'De-warping decorative Gujarati calligraphy...',
             'Extracting firm name & Roman transliteration...',
             'Parsing mobile numbers & postal PIN...',
-            'Evaluating dynamic accuracy rating...'
+            'Structuring contact directory fields...'
         ];
 
         let stepIndex = 0;
@@ -104,12 +117,16 @@ export default function MobileScannerView({
                 setCardData(result.data);
                 showToast('Card extracted successfully!', 'success');
             } else {
-                showToast(result.message || 'Scan failed to extract card text', 'error');
+                const errMsg = result.message || 'Scan failed to extract card text. Check lighting & angle.';
+                setScanError(errMsg);
+                showToast(errMsg, 'error');
             }
         } catch (error) {
             clearInterval(interval);
             console.error('Scan error:', error);
-            showToast('Scan connection failed. Check server status.', 'error');
+            const errMsg = 'Scan connection interrupted. Tap Retry to try again.';
+            setScanError(errMsg);
+            showToast(errMsg, 'error');
         } finally {
             setIsScanning(false);
             setScanProgress('');
@@ -166,16 +183,23 @@ export default function MobileScannerView({
         }));
     };
 
+    const primaryPhone = cardData && Array.isArray(cardData.phone) && cardData.phone.length > 0
+        ? cardData.phone[0]
+        : (cardData && typeof cardData.phone === 'string' ? cardData.phone : null);
+    const isLandline = isLandlineNumber(primaryPhone);
+
     return (
-        <div className={`space-y-4 pb-20 ${!cardData ? 'flex-1 flex flex-col justify-center my-auto' : ''}`}>
+        <div className={`space-y-4 pb-24 ${!cardData ? 'flex-1 flex flex-col justify-center my-auto' : ''}`}>
             {/* Capture Area */}
             <CardUploadDropzone
                 imagePreview={imagePreview}
                 imageFileName={imageFileName}
                 isScanning={isScanning}
+                scanError={scanError}
                 onFileSelected={handleFileSelected}
                 onLoadSample={handleLoadSample}
                 onReset={handleReset}
+                onRetry={handleRetry}
             />
 
             {/* Scanning Status Box */}
@@ -184,7 +208,7 @@ export default function MobileScannerView({
                     <div className="w-8 h-8 rounded-full border-2 border-black border-t-transparent animate-spin mx-auto"></div>
                     <div className="space-y-0.5">
                         <h4 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                            CardScan Engine
+                            Neural OCR Engine
                         </h4>
                         <p className="text-xs font-bold text-zinc-900">{scanProgress}</p>
                     </div>
@@ -197,11 +221,11 @@ export default function MobileScannerView({
                     {/* Header: Status & View Switcher */}
                     <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
                         <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-zinc-100 text-zinc-700 text-[10px] font-bold">
+                            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200/60">
                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                <span>Verified</span>
+                                <span>Extracted</span>
                             </div>
-                            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                            <span className="text-[10px] font-bold text-zinc-500 uppercase font-mono tracking-wider">
                                 {cardData.detected_language || 'Gujarati'}
                             </span>
                         </div>
@@ -234,8 +258,8 @@ export default function MobileScannerView({
                         <JsonViewer data={cardData} onCopy={() => showToast('JSON copied to clipboard')} />
                     )}
 
-                    {/* Quick Direct Actions: Save to Phone, WhatsApp */}
-                    {Array.isArray(cardData.phone) && cardData.phone.length > 0 && (
+                    {/* Quick Direct Actions: Save to Phone, WhatsApp / Call */}
+                    {primaryPhone && (
                         <div className="grid grid-cols-2 gap-2 pt-1">
                             <button
                                 onClick={() => {
@@ -248,13 +272,23 @@ export default function MobileScannerView({
                                 <span>Save to Phone</span>
                             </button>
 
-                            <button
-                                onClick={() => openWhatsApp(cardData.phone[0], cardData)}
-                                className="py-2.5 px-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5"
-                            >
-                                <MessageCircle className="w-3.5 h-3.5" />
-                                <span>WhatsApp</span>
-                            </button>
+                            {isLandline ? (
+                                <button
+                                    onClick={() => initiatePhoneCall(primaryPhone)}
+                                    className="py-2.5 px-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                                >
+                                    <Phone className="w-3.5 h-3.5" />
+                                    <span>Call Office</span>
+                                </button>
+                            ) : (
+                                <button
+                                    onClick={() => openWhatsApp(primaryPhone, cardData)}
+                                    className="py-2.5 px-3 rounded-2xl bg-[#0F9D58] hover:bg-[#0b8043] text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                                >
+                                    <MessageCircle className="w-3.5 h-3.5" />
+                                    <span>WhatsApp</span>
+                                </button>
+                            )}
                         </div>
                     )}
 
@@ -278,4 +312,3 @@ export default function MobileScannerView({
         </div>
     );
 }
-
