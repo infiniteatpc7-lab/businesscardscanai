@@ -32,22 +32,74 @@ class CardController extends Controller
 
     /**
      * Display a listing of saved cards scoped to the authenticated user's workspace.
-     * Supports optional exhibition filtering via ?exhibition_id=.
+     * Supports role-based member visibility, team member filter for Owner/Admin,
+     * optional exhibition filtering via ?exhibition_id=, and date range filtering.
      */
     public function index(Request $request): JsonResponse
     {
         /** @var Workspace $workspace */
         $workspace = $request->attributes->get('workspace');
+        $role = $request->attributes->get('workspace_role');
+        $user = $request->user();
 
         $query = Card::query()
             ->forWorkspace($workspace->id)
-            ->with(['exhibitions:id,name,status'])
             ->latest();
+
+        // Enforce role-based card visibility
+        if ($role === 'member') {
+            // A Member can see only contacts/cards they personally scanned (or legacy created without scans)
+            $query->where(function ($q) use ($user, $workspace) {
+                $q->whereHas('scans', function ($sq) use ($user, $workspace) {
+                    $sq->where('workspace_id', $workspace->id)
+                        ->where('user_id', $user->id);
+                })->orWhere(function ($oq) use ($user) {
+                    $oq->where('user_id', $user->id)->doesntHave('scans');
+                });
+            });
+
+            $query->with([
+                'exhibitions:id,name,status',
+                'scans' => function ($sq) use ($user, $workspace) {
+                    $sq->where('workspace_id', $workspace->id)
+                        ->where('user_id', $user->id)
+                        ->with(['user:id,name', 'exhibition:id,name']);
+                },
+            ]);
+        } else {
+            // Owner and Admin can view all workspace cards and optionally filter by team member
+            if ($memberId = $request->input('member_id')) {
+                $memberId = (int) $memberId;
+                $query->where(function ($q) use ($memberId, $workspace) {
+                    $q->whereHas('scans', function ($sq) use ($memberId, $workspace) {
+                        $sq->where('workspace_id', $workspace->id)
+                            ->where('user_id', $memberId);
+                    })->orWhere(function ($oq) use ($memberId) {
+                        $oq->where('user_id', $memberId)->doesntHave('scans');
+                    });
+                });
+            }
+
+            $query->with([
+                'exhibitions:id,name,status',
+                'scans.user:id,name',
+                'scans.exhibition:id,name',
+                'user:id,name',
+            ]);
+        }
 
         if ($exhibitionId = $request->input('exhibition_id')) {
             $query->whereHas('exhibitions', function ($q) use ($exhibitionId) {
                 $q->where('exhibitions.id', $exhibitionId);
             });
+        }
+
+        if ($fromDate = $request->input('from_date')) {
+            $query->whereDate('created_at', '>=', $fromDate);
+        }
+
+        if ($toDate = $request->input('to_date')) {
+            $query->whereDate('created_at', '<=', $toDate);
         }
 
         if ($search = $request->input('search')) {
@@ -61,9 +113,43 @@ class CardController extends Controller
             });
         }
 
+        $cards = $query->get()->map(function (Card $card) use ($role) {
+            if ($role === 'member') {
+                $memberScan = $card->scans->first();
+                if ($memberScan && $memberScan->front_image_path) {
+                    $card->image_path = $memberScan->front_image_path;
+                }
+                if ($memberScan && $memberScan->back_image_path) {
+                    $card->back_image_path = $memberScan->back_image_path;
+                }
+                // Members do not receive other members' attribution
+                $card->setAttribute('scanners', []);
+            } else {
+                $scanners = $card->scans
+                    ->filter(fn ($scan) => $scan->user !== null)
+                    ->map(fn ($scan) => [
+                        'id' => $scan->user->id,
+                        'name' => $scan->user->name,
+                    ])
+                    ->unique('id')
+                    ->values();
+
+                if ($scanners->isEmpty() && $card->user) {
+                    $scanners = collect([[
+                        'id' => $card->user->id,
+                        'name' => $card->user->name,
+                    ]]);
+                }
+
+                $card->setAttribute('scanners', $scanners);
+            }
+
+            return $card;
+        });
+
         return response()->json([
             'success' => true,
-            'cards' => $query->get(),
+            'cards' => $cards,
         ]);
     }
 
@@ -523,11 +609,41 @@ EOT;
                 ]);
             });
 
+            $role = $request->attributes->get('workspace_role');
+            if ($role === 'member') {
+                $existingCard->load([
+                    'exhibitions',
+                    'scans' => function ($sq) use ($user, $workspace) {
+                        $sq->where('workspace_id', $workspace->id)
+                            ->where('user_id', $user->id)
+                            ->with(['user:id,name', 'exhibition:id,name']);
+                    },
+                ]);
+                $existingCard->setAttribute('scanners', []);
+            } else {
+                $existingCard->load(['exhibitions', 'scans.user:id,name', 'scans.exhibition:id,name', 'user:id,name']);
+                $scanners = $existingCard->scans
+                    ->filter(fn ($scan) => $scan->user !== null)
+                    ->map(fn ($scan) => [
+                        'id' => $scan->user->id,
+                        'name' => $scan->user->name,
+                    ])
+                    ->unique('id')
+                    ->values();
+                if ($scanners->isEmpty() && $existingCard->user) {
+                    $scanners = collect([[
+                        'id' => $existingCard->user->id,
+                        'name' => $existingCard->user->name,
+                    ]]);
+                }
+                $existingCard->setAttribute('scanners', $scanners);
+            }
+
             return response()->json([
                 'success' => true,
                 'linked' => true,
                 'message' => "Contact successfully linked to {$exhibition->name} with scan event recorded.",
-                'card' => $existingCard->load(['exhibitions', 'scans.user:id,name', 'scans.exhibition:id,name']),
+                'card' => $existingCard,
             ], 200);
         }
 
@@ -611,31 +727,112 @@ EOT;
             return $newCard;
         });
 
+        $role = $request->attributes->get('workspace_role');
+        if ($role === 'member') {
+            $card->load([
+                'exhibitions',
+                'scans' => function ($sq) use ($user, $workspace) {
+                    $sq->where('workspace_id', $workspace->id)
+                        ->where('user_id', $user->id)
+                        ->with(['user:id,name', 'exhibition:id,name']);
+                },
+            ]);
+            $card->setAttribute('scanners', []);
+        } else {
+            $card->load(['exhibitions', 'scans.user:id,name', 'scans.exhibition:id,name', 'user:id,name']);
+            $scanners = $card->scans
+                ->filter(fn ($scan) => $scan->user !== null)
+                ->map(fn ($scan) => [
+                    'id' => $scan->user->id,
+                    'name' => $scan->user->name,
+                ])
+                ->unique('id')
+                ->values();
+            if ($scanners->isEmpty() && $card->user) {
+                $scanners = collect([[
+                    'id' => $card->user->id,
+                    'name' => $card->user->name,
+                ]]);
+            }
+            $card->setAttribute('scanners', $scanners);
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Card saved successfully to database!',
-            'card' => $card->load(['exhibitions', 'scans.user:id,name', 'scans.exhibition:id,name']),
+            'card' => $card,
             'duplicate_override' => $forceDuplicate && $duplicateResult['has_duplicates'],
         ], 201);
     }
 
     /**
      * Display the specified card scoped to the user's workspace with exhibitions and scan history.
+     * Enforces member-level visibility isolation (IDOR protection).
      */
     public function show(Request $request, int $id): JsonResponse
     {
         /** @var Workspace $workspace */
         $workspace = $request->attributes->get('workspace');
+        $role = $request->attributes->get('workspace_role');
+        $user = $request->user();
 
-        $card = Card::forWorkspace($workspace->id)
-            ->with(['exhibitions', 'scans.user:id,name', 'scans.exhibition:id,name'])
-            ->find($id);
+        $card = Card::forWorkspace($workspace->id)->find($id);
 
         if (! $card) {
             return response()->json([
                 'success' => false,
                 'message' => 'Card not found',
             ], 404);
+        }
+
+        if ($role === 'member') {
+            $hasScan = $card->scans()->where('workspace_id', $workspace->id)->where('user_id', $user->id)->exists();
+            $isLegacyCreator = ($card->user_id === $user->id && $card->scans()->count() === 0);
+
+            if (! $hasScan && ! $isLegacyCreator) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Card not found',
+                ], 404);
+            }
+
+            $card->load([
+                'exhibitions',
+                'scans' => function ($sq) use ($user, $workspace) {
+                    $sq->where('workspace_id', $workspace->id)
+                        ->where('user_id', $user->id)
+                        ->with(['user:id,name', 'exhibition:id,name']);
+                },
+            ]);
+
+            $memberScan = $card->scans->first();
+            if ($memberScan && $memberScan->front_image_path) {
+                $card->image_path = $memberScan->front_image_path;
+            }
+            if ($memberScan && $memberScan->back_image_path) {
+                $card->back_image_path = $memberScan->back_image_path;
+            }
+            $card->setAttribute('scanners', []);
+        } else {
+            $card->load(['exhibitions', 'scans.user:id,name', 'scans.exhibition:id,name', 'user:id,name']);
+
+            $scanners = $card->scans
+                ->filter(fn ($scan) => $scan->user !== null)
+                ->map(fn ($scan) => [
+                    'id' => $scan->user->id,
+                    'name' => $scan->user->name,
+                ])
+                ->unique('id')
+                ->values();
+
+            if ($scanners->isEmpty() && $card->user) {
+                $scanners = collect([[
+                    'id' => $card->user->id,
+                    'name' => $card->user->name,
+                ]]);
+            }
+
+            $card->setAttribute('scanners', $scanners);
         }
 
         return response()->json([
@@ -651,6 +848,8 @@ EOT;
     {
         /** @var Workspace $workspace */
         $workspace = $request->attributes->get('workspace');
+        $role = $request->attributes->get('workspace_role');
+        $user = $request->user();
 
         $card = Card::forWorkspace($workspace->id)->find($id);
 
@@ -659,6 +858,18 @@ EOT;
                 'success' => false,
                 'message' => 'Card not found',
             ], 404);
+        }
+
+        if ($role === 'member') {
+            $hasScan = $card->scans()->where('workspace_id', $workspace->id)->where('user_id', $user->id)->exists();
+            $isLegacyCreator = ($card->user_id === $user->id && $card->scans()->count() === 0);
+
+            if (! $hasScan && ! $isLegacyCreator) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Card not found',
+                ], 404);
+            }
         }
 
         $validated = $request->validate([
@@ -686,10 +897,39 @@ EOT;
 
         $card->update($validated);
 
+        if ($role === 'member') {
+            $card->load([
+                'exhibitions',
+                'scans' => function ($sq) use ($user, $workspace) {
+                    $sq->where('workspace_id', $workspace->id)
+                        ->where('user_id', $user->id)
+                        ->with(['user:id,name', 'exhibition:id,name']);
+                },
+            ]);
+            $card->setAttribute('scanners', []);
+        } else {
+            $card->load(['exhibitions', 'scans.user:id,name', 'scans.exhibition:id,name', 'user:id,name']);
+            $scanners = $card->scans
+                ->filter(fn ($scan) => $scan->user !== null)
+                ->map(fn ($scan) => [
+                    'id' => $scan->user->id,
+                    'name' => $scan->user->name,
+                ])
+                ->unique('id')
+                ->values();
+            if ($scanners->isEmpty() && $card->user) {
+                $scanners = collect([[
+                    'id' => $card->user->id,
+                    'name' => $card->user->name,
+                ]]);
+            }
+            $card->setAttribute('scanners', $scanners);
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Card updated successfully.',
-            'card' => $card->load(['exhibitions', 'scans.user:id,name', 'scans.exhibition:id,name']),
+            'card' => $card,
         ]);
     }
 
@@ -738,11 +978,14 @@ EOT;
 
     /**
      * Securely serve a card's front or back image strictly to members of the workspace.
+     * Enforces member-level isolation and IDOR protection.
      */
     public function image(Request $request, int $id): Response
     {
         /** @var Workspace $workspace */
         $workspace = $request->attributes->get('workspace');
+        $role = $request->attributes->get('workspace_role');
+        $user = $request->user();
 
         $card = Card::forWorkspace($workspace->id)->find($id);
 
@@ -753,7 +996,49 @@ EOT;
             ], 404);
         }
 
-        $targetPath = ($request->query('type') === 'back') ? $card->back_image_path : $card->image_path;
+        if ($role === 'member') {
+            $hasScan = $card->scans()->where('workspace_id', $workspace->id)->where('user_id', $user->id)->exists();
+            $isLegacyCreator = ($card->user_id === $user->id && $card->scans()->count() === 0);
+
+            if (! $hasScan && ! $isLegacyCreator) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Card not found.',
+                ], 404);
+            }
+        }
+
+        $targetPath = null;
+        if ($scanId = $request->query('scan_id')) {
+            $scanQuery = CardScan::where('workspace_id', $workspace->id)
+                ->where('card_id', $card->id)
+                ->where('id', $scanId);
+
+            if ($role === 'member') {
+                $scanQuery->where('user_id', $user->id);
+            }
+
+            $scan = $scanQuery->first();
+            if (! $scan) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Scan record not found or access denied.',
+                ], 404);
+            }
+            $targetPath = ($request->query('type') === 'back') ? $scan->back_image_path : $scan->front_image_path;
+        } elseif ($role === 'member') {
+            // Serve member's latest scan image if available
+            $memberScan = $card->scans()->where('workspace_id', $workspace->id)->where('user_id', $user->id)->latest('scanned_at')->first();
+            if ($memberScan) {
+                $targetPath = ($request->query('type') === 'back')
+                    ? ($memberScan->back_image_path ?: $card->back_image_path)
+                    : ($memberScan->front_image_path ?: $card->image_path);
+            } else {
+                $targetPath = ($request->query('type') === 'back') ? $card->back_image_path : $card->image_path;
+            }
+        } else {
+            $targetPath = ($request->query('type') === 'back') ? $card->back_image_path : $card->image_path;
+        }
 
         if (! $targetPath) {
             return response()->json([

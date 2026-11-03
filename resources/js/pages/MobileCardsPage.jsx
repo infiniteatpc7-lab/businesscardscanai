@@ -18,12 +18,13 @@ import {
     Pencil,
     Save,
     RotateCcw,
-    Download
+    Download,
+    Users
 } from 'lucide-react';
 import SwipeableCardItem from '../components/cards/SwipeableCardItem';
 import CardFormEditor from '../components/scanner/CardFormEditor';
 import { downloadVCard, openWhatsApp, isLandlineNumber, initiatePhoneCall } from '../services/vcfHelper';
-import { deleteCard, saveCard, updateCard, getCardImageUrl, fetchCardImageBlob } from '../services/cardApi';
+import { deleteCard, saveCard, updateCard, getCardImageUrl, fetchCardImageBlob, fetchWorkspaceMembers } from '../services/cardApi';
 import { useToast } from '../context/ToastContext';
 import { Calendar, Building2, Layers } from 'lucide-react';
 
@@ -35,12 +36,18 @@ export default function MobileCardsPage({
     initialSelectedCard = null,
     onClearSelectedCard,
     exhibitions = [],
-    currentExhibition = null
+    currentExhibition = null,
+    workspaceRole = 'member',
+    workspaceId = null
 }) {
     const { showToast } = useToast();
+    const isOwnerOrAdmin = workspaceRole === 'owner' || workspaceRole === 'admin';
+
     const [searchTerm, setSearchTerm] = useState('');
     const [filterScript, setFilterScript] = useState('all'); // 'all' | 'gujarati' | 'english'
     const [selectedExhibitionFilter, setSelectedExhibitionFilter] = useState('all');
+    const [selectedMemberFilter, setSelectedMemberFilter] = useState('all');
+    const [workspaceMembers, setWorkspaceMembers] = useState([]);
     const [selectedCard, setSelectedCard] = useState(initialSelectedCard);
     const [cardImageBlobUrl, setCardImageBlobUrl] = useState(null);
     const [backImageBlobUrl, setBackImageBlobUrl] = useState(null);
@@ -59,6 +66,18 @@ export default function MobileCardsPage({
             onClearSelectedCard?.();
         }
     }, [initialSelectedCard]);
+
+    useEffect(() => {
+        if (isOwnerOrAdmin && workspaceId) {
+            fetchWorkspaceMembers(workspaceId).then((res) => {
+                if (res && res.success && Array.isArray(res.members)) {
+                    setWorkspaceMembers(res.members);
+                }
+            }).catch((err) => {
+                console.error('Failed to load workspace members for filter:', err);
+            });
+        }
+    }, [isOwnerOrAdmin, workspaceId]);
 
     const startEditing = () => {
         if (!selectedCard) return;
@@ -208,13 +227,20 @@ export default function MobileCardsPage({
         };
     }, [selectedCard?.id]);
 
-    // Filter cards by Search, Script, and Exhibition
+    // Filter cards by Search, Script, Exhibition, and Team Member
     const filteredCards = cards.filter((card) => {
         // Exhibition filter
         if (selectedExhibitionFilter !== 'all') {
             const exId = Number(selectedExhibitionFilter);
             const matchesExhibition = Array.isArray(card.exhibitions) && card.exhibitions.some(e => e.id === exId);
             if (!matchesExhibition) return false;
+        }
+
+        // Team Member filter (Owner and Admin only)
+        if (isOwnerOrAdmin && selectedMemberFilter !== 'all') {
+            const mId = Number(selectedMemberFilter);
+            const matchesMember = Array.isArray(card.scanners) && card.scanners.some(s => s.id === mId);
+            if (!matchesMember) return false;
         }
 
         const q = searchTerm.toLowerCase();
@@ -298,7 +324,10 @@ export default function MobileCardsPage({
         }
     };
 
-    const hasFiltersApplied = searchTerm.trim().length > 0 || filterScript !== 'all' || selectedExhibitionFilter !== 'all';
+    const hasFiltersApplied = searchTerm.trim().length > 0 ||
+        filterScript !== 'all' ||
+        selectedExhibitionFilter !== 'all' ||
+        (isOwnerOrAdmin && selectedMemberFilter !== 'all');
 
     return (
         <div className="space-y-4 pb-24">
@@ -385,6 +414,34 @@ export default function MobileCardsPage({
                         </select>
                     </div>
                 )}
+
+                {/* Team Member Filter Dropdown (Owner & Admin only) */}
+                {isOwnerOrAdmin && workspaceMembers.length > 0 && (
+                    <div className="flex items-center gap-1.5 pt-2 border-t border-zinc-100">
+                        <Users className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                        <select
+                            value={selectedMemberFilter}
+                            onChange={(e) => setSelectedMemberFilter(e.target.value)}
+                            className="flex-1 bg-zinc-50 border border-zinc-200/80 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-zinc-800 focus:outline-none focus:ring-1 focus:ring-black"
+                        >
+                            <option value="all">All Members ({cards.length} cards)</option>
+                            {workspaceMembers.map((member) => (
+                                <option key={member.id} value={member.id}>
+                                    {member.name}
+                                </option>
+                            ))}
+                        </select>
+                        {selectedMemberFilter !== 'all' && (
+                            <button
+                                type="button"
+                                onClick={() => setSelectedMemberFilter('all')}
+                                className="px-2 py-1 text-[10px] font-bold text-zinc-500 hover:text-black bg-zinc-100 rounded-lg transition-colors"
+                            >
+                                Reset
+                            </button>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Filter Result Counter / Swipe Hint */}
@@ -423,6 +480,8 @@ export default function MobileCardsPage({
                                 onClick={() => {
                                     setSearchTerm('');
                                     setFilterScript('all');
+                                    setSelectedExhibitionFilter('all');
+                                    setSelectedMemberFilter('all');
                                 }}
                                 className="px-3.5 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-semibold"
                             >
@@ -446,6 +505,8 @@ export default function MobileCardsPage({
                             onSelectCard={(c) => setSelectedCard(c)}
                             onDeleteCard={handleDelete}
                             showToast={showToast}
+                            isOwnerOrAdmin={isOwnerOrAdmin}
+                            onFilterByMember={(id) => setSelectedMemberFilter(String(id))}
                         />
                     ))}
                 </div>
@@ -616,6 +677,14 @@ export default function MobileCardsPage({
 
                                 {/* Language & Exhibition Badges */}
                                 <div className="flex items-center gap-1.5 flex-wrap">
+                                    {isOwnerOrAdmin && Array.isArray(selectedCard.scanners) && selectedCard.scanners.map((scanner) => (
+                                        <span
+                                            key={scanner.id}
+                                            className="text-[10px] uppercase font-mono font-bold text-blue-700 px-2.5 py-0.5 rounded-full bg-blue-50 border border-blue-200/80"
+                                        >
+                                            {scanner.name}
+                                        </span>
+                                    ))}
                                     {selectedCard.detected_language && (
                                         <span className="text-[10px] uppercase font-mono font-bold text-zinc-600 px-2.5 py-0.5 rounded-full bg-zinc-100">
                                             {selectedCard.detected_language}

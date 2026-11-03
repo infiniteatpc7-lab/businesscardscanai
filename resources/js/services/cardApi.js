@@ -54,12 +54,15 @@ export async function authFetch(url, options = {}) {
 
 /**
  * Fetch all cards for current workspace.
- * Supports search and exhibition filtering.
+ * Supports search, exhibition filtering, member filtering, and date range.
  */
-export async function fetchCards(search = '', exhibitionId = '') {
+export async function fetchCards(search = '', exhibitionId = '', memberId = '', fromDate = '', toDate = '') {
     const params = new URLSearchParams();
     if (search) params.append('search', search);
-    if (exhibitionId) params.append('exhibition_id', exhibitionId);
+    if (exhibitionId && exhibitionId !== 'all') params.append('exhibition_id', exhibitionId);
+    if (memberId && memberId !== 'all') params.append('member_id', memberId);
+    if (fromDate) params.append('from_date', fromDate);
+    if (toDate) params.append('to_date', toDate);
 
     const queryString = params.toString();
     const url = queryString ? `/api/cards?${queryString}` : '/api/cards';

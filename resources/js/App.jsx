@@ -268,6 +268,8 @@ function MobileAppContent() {
                                 onClearSelectedCard={() => setSelectedCardForModal(null)}
                                 exhibitions={exhibitionsList}
                                 currentExhibition={currentExhibition}
+                                workspaceRole={authWorkspace?.role}
+                                workspaceId={authWorkspace?.id}
                             />
                         )}
 

@@ -19,7 +19,9 @@ export default function SwipeableCardItem({
     onSelectCard,
     onDeleteCard,
     onUndoDelete,
-    showToast
+    showToast,
+    isOwnerOrAdmin = false,
+    onFilterByMember,
 }) {
     const [offsetX, setOffsetX] = useState(0);
     const [isSwiping, setIsSwiping] = useState(false);
@@ -216,7 +218,7 @@ export default function SwipeableCardItem({
                     transition: isSwiping ? 'none' : 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
                 }}
             >
-                {/* Card Top: Company & Language */}
+                {/* Card Top: Company & Language / Scanner Attribution */}
                 <div className="flex items-start justify-between gap-2">
                     <div className="space-y-0.5 min-w-0">
                         <h3 className="font-gujarati font-extrabold text-sm text-zinc-950 truncate">
@@ -226,11 +228,27 @@ export default function SwipeableCardItem({
                             <p className="text-[11px] text-zinc-600 truncate">{card.company_english}</p>
                         )}
                     </div>
-                    {card.detected_language && (
-                        <span className="text-[9px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-500 font-semibold shrink-0">
-                            {card.detected_language}
-                        </span>
-                    )}
+                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                        {isOwnerOrAdmin && Array.isArray(card.scanners) && card.scanners.map((scanner) => (
+                            <button
+                                key={scanner.id}
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onFilterByMember?.(scanner.id);
+                                }}
+                                className="text-[9px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200/60 font-semibold transition-all active:scale-95"
+                                title={`Filter cards scanned by ${scanner.name}`}
+                            >
+                                {scanner.name}
+                            </button>
+                        ))}
+                        {card.detected_language && (
+                            <span className="text-[9px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-500 font-semibold shrink-0">
+                                {card.detected_language}
+                            </span>
+                        )}
+                    </div>
                 </div>
 
                 {/* Contact Person & Role */}
