@@ -125,21 +125,20 @@ class CardController extends Controller
                 // Members do not receive other members' attribution
                 $card->setAttribute('scanners', []);
             } else {
+                $creatorScanner = $card->user ? ['id' => $card->user->id, 'name' => $card->user->name] : null;
+
                 $scanners = $card->scans
                     ->filter(fn ($scan) => $scan->user !== null)
                     ->map(fn ($scan) => [
                         'id' => $scan->user->id,
                         'name' => $scan->user->name,
-                    ])
-                    ->unique('id')
-                    ->values();
+                    ]);
 
-                if ($scanners->isEmpty() && $card->user) {
-                    $scanners = collect([[
-                        'id' => $card->user->id,
-                        'name' => $card->user->name,
-                    ]]);
+                if ($creatorScanner) {
+                    $scanners = $scanners->prepend($creatorScanner);
                 }
+
+                $scanners = $scanners->unique('id')->values();
 
                 $card->setAttribute('scanners', $scanners);
             }

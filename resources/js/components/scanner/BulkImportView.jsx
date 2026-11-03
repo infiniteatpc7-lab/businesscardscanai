@@ -952,7 +952,9 @@ export default function BulkImportView({
                                             {item.extracted_data?.company || item.extracted_data?.name || 'Unidentified'}
                                         </h4>
                                         <p className="text-[10px] text-zinc-500 truncate">
-                                            {item.extracted_data?.name || item.extracted_data?.phone?.[0] || 'Tap to edit'}
+                                            {(item.extracted_data?.company && item.extracted_data?.name)
+                                                ? item.extracted_data.name
+                                                : (Array.isArray(item.extracted_data?.phone) ? item.extracted_data.phone[0] : item.extracted_data?.phone) || item.extracted_data?.designation || 'Tap to edit'}
                                         </p>
                                     </div>
 

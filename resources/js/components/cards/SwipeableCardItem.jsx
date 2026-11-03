@@ -41,6 +41,11 @@ export default function SwipeableCardItem({
 
     const isLandline = isLandlineNumber(primaryPhone);
 
+    // Primary original scanner attribution (displays only the first person who scanned it)
+    const primaryScanner = Array.isArray(card.scanners) && card.scanners.length > 0
+        ? card.scanners[0]
+        : (card.user ? { id: card.user.id, name: card.user.name } : null);
+
     // Thresholds
     const ACTION_THRESHOLD = 90; // Reveals action
 
@@ -249,20 +254,19 @@ export default function SwipeableCardItem({
                         )}
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-                        {isOwnerOrAdmin && Array.isArray(card.scanners) && card.scanners.map((scanner) => (
+                        {isOwnerOrAdmin && primaryScanner && (
                             <button
-                                key={scanner.id}
                                 type="button"
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    onFilterByMember?.(scanner.id);
+                                    onFilterByMember?.(primaryScanner.id);
                                 }}
                                 className="text-[9px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200/60 font-semibold transition-all active:scale-95"
-                                title={`Filter cards scanned by ${scanner.name}`}
+                                title={`Original scanner: ${primaryScanner.name}. Tap to filter.`}
                             >
-                                {scanner.name}
+                                {primaryScanner.name}
                             </button>
-                        ))}
+                        )}
                         {card.detected_language && (
                             <span className="text-[9px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-500 font-semibold shrink-0">
                                 {card.detected_language}
