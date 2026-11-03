@@ -17,7 +17,8 @@ import {
     ExternalLink,
     Pencil,
     Save,
-    RotateCcw
+    RotateCcw,
+    Download
 } from 'lucide-react';
 import SwipeableCardItem from '../components/cards/SwipeableCardItem';
 import CardFormEditor from '../components/scanner/CardFormEditor';
@@ -111,6 +112,61 @@ export default function MobileCardsPage({
             showToast('Network error while updating card', 'error');
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handleDownloadImage = async (e) => {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        if (!selectedCard) return;
+
+        try {
+            let activeUrl = activeImageTab === 'back'
+                ? (backImageBlobUrl || selectedCard.back_image_path)
+                : (cardImageBlobUrl || getCardImageUrl(selectedCard) || selectedCard.image_path);
+
+            let downloadUrl = activeUrl;
+            let shouldRevoke = false;
+
+            // If not a local blob: or data: URL, fetch the image as an authenticated blob
+            if (!downloadUrl || (!downloadUrl.startsWith('blob:') && !downloadUrl.startsWith('data:'))) {
+                const fetchedBlob = await fetchCardImageBlob(selectedCard.id, activeImageTab);
+                if (fetchedBlob) {
+                    downloadUrl = fetchedBlob;
+                    shouldRevoke = true;
+                }
+            }
+
+            if (!downloadUrl) {
+                showToast('Image file is not accessible for download.', 'warning');
+                return;
+            }
+
+            // Create clean file name based on company or contact person
+            const cleanName = (selectedCard.company || selectedCard.name || 'business_card')
+                .trim()
+                .replace(/[^a-zA-Z0-9_\u0A80-\u0AFF]/g, '_')
+                .substring(0, 35);
+            const sideSuffix = activeImageTab === 'back' ? '_back' : '_front';
+            const fileName = `${cleanName}${sideSuffix}.jpg`;
+
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            if (shouldRevoke) {
+                setTimeout(() => URL.revokeObjectURL(downloadUrl), 3000);
+            }
+
+            showToast(`Card image downloaded (${fileName})`, 'success');
+        } catch (err) {
+            console.error('Image download error:', err);
+            showToast('Failed to download card image', 'error');
         }
     };
 
@@ -484,35 +540,61 @@ export default function MobileCardsPage({
                         ) : (
                             /* Normal View Mode */
                             <>
-                                {/* Front / Back Image Tabs & Preview */}
+                                {/* Front / Back Image Tabs & Preview with Direct Tap-to-Download */}
                                 {(cardImageBlobUrl || getCardImageUrl(selectedCard) || selectedCard.image_path) && (
                                     <div className="space-y-2">
-                                        {selectedCard.back_image_path && (
-                                            <div className="flex items-center gap-1.5 p-1 bg-zinc-100 rounded-xl max-w-[200px]">
-                                                <button
-                                                    onClick={() => setActiveImageTab('front')}
-                                                    className={`flex-1 py-1 px-2.5 rounded-lg text-[10px] font-bold transition-all ${
-                                                        activeImageTab === 'front'
-                                                            ? 'bg-white text-zinc-950 shadow-xs'
-                                                            : 'text-zinc-500 hover:text-zinc-800'
-                                                    }`}
-                                                >
-                                                    Front Image
-                                                </button>
-                                                <button
-                                                    onClick={() => setActiveImageTab('back')}
-                                                    className={`flex-1 py-1 px-2.5 rounded-lg text-[10px] font-bold transition-all ${
-                                                        activeImageTab === 'back'
-                                                            ? 'bg-white text-zinc-950 shadow-xs'
-                                                            : 'text-zinc-500 hover:text-zinc-800'
-                                                    }`}
-                                                >
-                                                    Back Image
-                                                </button>
-                                            </div>
-                                        )}
+                                        <div className="flex items-center justify-between gap-2">
+                                            {selectedCard.back_image_path ? (
+                                                <div className="flex items-center gap-1.5 p-1 bg-zinc-100 rounded-xl max-w-[200px]">
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setActiveImageTab('front');
+                                                        }}
+                                                        className={`flex-1 py-1 px-2.5 rounded-lg text-[10px] font-bold transition-all ${
+                                                            activeImageTab === 'front'
+                                                                ? 'bg-white text-zinc-950 shadow-xs'
+                                                                : 'text-zinc-500 hover:text-zinc-800'
+                                                        }`}
+                                                    >
+                                                        Front Image
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setActiveImageTab('back');
+                                                        }}
+                                                        className={`flex-1 py-1 px-2.5 rounded-lg text-[10px] font-bold transition-all ${
+                                                            activeImageTab === 'back'
+                                                                ? 'bg-white text-zinc-950 shadow-xs'
+                                                                : 'text-zinc-500 hover:text-zinc-800'
+                                                        }`}
+                                                    >
+                                                        Back Image
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <span className="text-[10px] uppercase font-bold text-zinc-400">Card Photo</span>
+                                            )}
 
-                                        <div className="rounded-2xl overflow-hidden border border-zinc-200 bg-zinc-900 shadow-inner">
+                                            <button
+                                                type="button"
+                                                onClick={handleDownloadImage}
+                                                className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-[11px] font-bold transition-all active:scale-95 shadow-2xs shrink-0"
+                                                title="Download card image"
+                                            >
+                                                <Download className="w-3.5 h-3.5 text-zinc-600" />
+                                                <span>Download</span>
+                                            </button>
+                                        </div>
+
+                                        <div
+                                            onClick={handleDownloadImage}
+                                            className="group relative rounded-2xl overflow-hidden border border-zinc-200 bg-zinc-900 shadow-inner cursor-pointer select-none active:scale-[0.99] transition-transform"
+                                            title="Tap to download card image"
+                                        >
                                             <img
                                                 src={
                                                     activeImageTab === 'back'
@@ -520,8 +602,14 @@ export default function MobileCardsPage({
                                                         : (cardImageBlobUrl || getCardImageUrl(selectedCard) || selectedCard.image_path)
                                                 }
                                                 alt="Scanned Card"
-                                                className="w-full max-h-48 object-contain mx-auto"
+                                                className="w-full max-h-52 object-contain mx-auto transition-transform duration-200 group-hover:scale-[1.01]"
                                             />
+
+                                            {/* Floating Download Chip on bottom-right */}
+                                            <div className="absolute bottom-2.5 right-2.5 px-2.5 py-1 rounded-full bg-black/75 backdrop-blur-md text-white text-[10px] font-bold flex items-center gap-1.5 shadow-md pointer-events-none transition-all group-hover:bg-black/90">
+                                                <Download className="w-3 h-3 text-emerald-400" />
+                                                <span>Tap to Download</span>
+                                            </div>
                                         </div>
                                     </div>
                                 )}

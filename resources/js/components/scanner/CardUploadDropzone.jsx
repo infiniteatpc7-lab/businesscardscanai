@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { UploadCloud, Camera, Sparkles, RefreshCw, ArrowRight, RotateCcw } from 'lucide-react';
+import { UploadCloud, Camera, Sparkles, RefreshCw, ArrowRight, RotateCcw, Download } from 'lucide-react';
 
 export default function CardUploadDropzone({
     imagePreview,
@@ -13,6 +13,16 @@ export default function CardUploadDropzone({
 }) {
     const fileInputRef = useRef(null);
     const cameraInputRef = useRef(null);
+
+    const handleDownload = (e) => {
+        if (!imagePreview || isScanning) return;
+        const link = document.createElement('a');
+        link.href = imagePreview;
+        link.download = imageFileName || 'card_photo.jpg';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
 
     const handleInput = (e) => {
         const file = e.target.files?.[0];
@@ -54,7 +64,11 @@ export default function CardUploadDropzone({
                     </p>
                 </div>
             ) : (
-                <div className="relative rounded-2xl overflow-hidden border border-zinc-200 bg-zinc-900 shadow-inner">
+                <div
+                    onClick={handleDownload}
+                    className="relative rounded-2xl overflow-hidden border border-zinc-200 bg-zinc-900 shadow-inner cursor-pointer select-none active:scale-[0.99] transition-transform"
+                    title="Tap to download card image"
+                >
                     <img
                         src={imagePreview}
                         alt="Card Preview"
@@ -69,12 +83,20 @@ export default function CardUploadDropzone({
                         </div>
                     )}
 
-                    {/* Overlay Tag */}
+                    {/* Overlay Tag with Download Hint */}
                     <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-[11px] font-mono text-white/90 bg-black/70 backdrop-blur-md px-3 py-1.5 rounded-xl">
-                        <span className="truncate max-w-[180px] sm:max-w-[200px]">{imageFileName || 'business_card.jpg'}</span>
-                        <span className={isScanning ? 'text-emerald-400 font-semibold' : scanError ? 'text-rose-400 font-semibold' : 'text-emerald-400 font-semibold'}>
-                            {isScanning ? 'Scanning...' : scanError ? 'Failed' : 'Ready'}
-                        </span>
+                        <span className="truncate max-w-[170px] sm:max-w-[200px]">{imageFileName || 'business_card.jpg'}</span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                            {!isScanning && (
+                                <span className="flex items-center gap-1 text-[10px] text-zinc-300 font-sans font-bold bg-white/10 px-2 py-0.5 rounded-md">
+                                    <Download className="w-3 h-3 text-emerald-400" />
+                                    <span>Download</span>
+                                </span>
+                            )}
+                            <span className={isScanning ? 'text-emerald-400 font-semibold' : scanError ? 'text-rose-400 font-semibold' : 'text-emerald-400 font-semibold'}>
+                                {isScanning ? 'Scanning...' : scanError ? 'Failed' : 'Ready'}
+                            </span>
+                        </div>
                     </div>
                 </div>
             )}
