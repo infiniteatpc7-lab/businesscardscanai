@@ -6,8 +6,19 @@ import MobileCardsPage from './pages/MobileCardsPage';
 import MobileScannerView from './pages/MobileScannerView';
 import MobileProfilePage from './pages/MobileProfilePage';
 import AuthModal from './components/auth/AuthModal';
+import ExhibitionSelectorModal from './components/exhibition/ExhibitionSelectorModal';
+import ExhibitionManageModal from './components/exhibition/ExhibitionManageModal';
 import { ToastProvider, useToast } from './context/ToastContext';
-import { fetchCards, fetchAuthUser, logoutUser, getStoredToken, fetchWorkspaces, acceptInvitation } from './services/cardApi';
+import {
+    fetchCards,
+    fetchAuthUser,
+    logoutUser,
+    getStoredToken,
+    fetchWorkspaces,
+    acceptInvitation,
+    fetchCurrentExhibition,
+    fetchExhibitions
+} from './services/cardApi';
 
 function MobileAppContent() {
     const { showToast } = useToast();
@@ -20,6 +31,12 @@ function MobileAppContent() {
     const [authWorkspace, setAuthWorkspace] = useState(null);
     const [workspacesList, setWorkspacesList] = useState([]);
     const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+
+    // Exhibition state
+    const [currentExhibition, setCurrentExhibition] = useState(null);
+    const [exhibitionsList, setExhibitionsList] = useState([]);
+    const [isExhibitionSelectorOpen, setIsExhibitionSelectorOpen] = useState(false);
+    const [isExhibitionManageOpen, setIsExhibitionManageOpen] = useState(false);
 
     // Fetch cards from backend API
     const loadCards = async () => {
@@ -49,6 +66,24 @@ function MobileAppContent() {
         }
     };
 
+    // Load exhibitions and user's current selection
+    const loadExhibitionState = async () => {
+        try {
+            const [currRes, listRes] = await Promise.all([
+                fetchCurrentExhibition(),
+                fetchExhibitions()
+            ]);
+            if (currRes.success && currRes.exhibition) {
+                setCurrentExhibition(currRes.exhibition);
+            }
+            if (listRes.success && Array.isArray(listRes.exhibitions)) {
+                setExhibitionsList(listRes.exhibitions);
+            }
+        } catch (err) {
+            console.error('Failed to load exhibition state:', err);
+        }
+    };
+
     // Verify authentication on mount
     const checkAuthStatus = async () => {
         const token = getStoredToken();
@@ -64,6 +99,7 @@ function MobileAppContent() {
                 setAuthWorkspace(res.current_workspace);
                 loadCards();
                 loadWorkspaces();
+                loadExhibitionState();
                 checkPendingInvite();
             } else {
                 setAuthUser(null);
@@ -87,6 +123,7 @@ function MobileAppContent() {
                     showToast(res.message || `Joined ${res.workspace.name}!`, 'success');
                     setAuthWorkspace(res.workspace);
                     loadWorkspaces();
+                    loadExhibitionState();
                     loadCards();
                     window.history.replaceState({}, document.title, '/');
                 } else {
@@ -106,6 +143,7 @@ function MobileAppContent() {
             setAuthUser(null);
             setAuthWorkspace(null);
             setCards([]);
+            setCurrentExhibition(null);
             setIsAuthModalOpen(true);
         };
 
@@ -119,6 +157,7 @@ function MobileAppContent() {
         setIsAuthModalOpen(false);
         loadCards();
         loadWorkspaces();
+        loadExhibitionState();
         checkPendingInvite();
         showToast(`Welcome back, ${data.user.name}!`);
     };
@@ -127,6 +166,7 @@ function MobileAppContent() {
         setAuthWorkspace(newWs);
         loadCards();
         loadWorkspaces();
+        loadExhibitionState();
     };
 
     const handleLogout = async () => {
@@ -134,6 +174,7 @@ function MobileAppContent() {
         setAuthUser(null);
         setAuthWorkspace(null);
         setCards([]);
+        setCurrentExhibition(null);
         setIsAuthModalOpen(true);
         showToast('Signed out successfully');
     };
@@ -189,6 +230,8 @@ function MobileAppContent() {
 
                 {/* Top Header */}
                 <MobileHeader
+                    currentExhibition={currentExhibition}
+                    onOpenExhibitionSelector={() => setIsExhibitionSelectorOpen(true)}
                     onLoadSample={() => {
                         setActiveTab('scan');
                         setTimeout(() => {
@@ -223,6 +266,8 @@ function MobileAppContent() {
                                 onExportCSV={handleExportCSV}
                                 initialSelectedCard={selectedCardForModal}
                                 onClearSelectedCard={() => setSelectedCardForModal(null)}
+                                exhibitions={exhibitionsList}
+                                currentExhibition={currentExhibition}
                             />
                         )}
 
@@ -235,6 +280,8 @@ function MobileAppContent() {
                                     }
                                     setActiveTab('cards');
                                 }}
+                                currentExhibition={currentExhibition}
+                                onOpenExhibitionSelector={() => setIsExhibitionSelectorOpen(true)}
                             />
                         )}
 
@@ -246,6 +293,8 @@ function MobileAppContent() {
                                 workspace={authWorkspace}
                                 workspaces={workspacesList}
                                 onWorkspaceChanged={handleWorkspaceChanged}
+                                currentExhibition={currentExhibition}
+                                onExhibitionChanged={loadExhibitionState}
                                 onLogout={handleLogout}
                             />
                         )}
@@ -257,6 +306,27 @@ function MobileAppContent() {
                     activeTab={activeTab}
                     onTabChange={setActiveTab}
                     cardsCount={cards.length}
+                />
+
+                {/* Global Exhibition Modals */}
+                <ExhibitionSelectorModal
+                    isOpen={isExhibitionSelectorOpen}
+                    onClose={() => setIsExhibitionSelectorOpen(false)}
+                    currentExhibition={currentExhibition}
+                    onExhibitionChanged={(newEx) => {
+                        setCurrentExhibition(newEx);
+                        loadExhibitionState();
+                    }}
+                    userRole={authWorkspace?.role || 'member'}
+                    onOpenManage={() => setIsExhibitionManageOpen(true)}
+                />
+
+                <ExhibitionManageModal
+                    isOpen={isExhibitionManageOpen}
+                    onClose={() => setIsExhibitionManageOpen(false)}
+                    currentWorkspace={authWorkspace}
+                    userRole={authWorkspace?.role || 'owner'}
+                    onExhibitionUpdated={loadExhibitionState}
                 />
             </div>
         </div>

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CardController;
+use App\Http\Controllers\ExhibitionController;
 use App\Http\Controllers\WorkspaceController;
 use Illuminate\Support\Facades\Route;
 
@@ -32,9 +33,21 @@ Route::middleware('api.auth')->group(function () {
     Route::post('/invitations/{token}/accept', [WorkspaceController::class, 'acceptInvitation']);
 });
 
+// Workspace Exhibitions & Current Selection
+Route::middleware('api.auth')->group(function () {
+    Route::get('/exhibitions', [ExhibitionController::class, 'index']);
+    Route::post('/exhibitions', [ExhibitionController::class, 'store']);
+    Route::get('/exhibitions/current', [ExhibitionController::class, 'current']);
+    Route::post('/exhibitions/current', [ExhibitionController::class, 'select']);
+    Route::get('/exhibitions/{id}', [ExhibitionController::class, 'show']);
+    Route::put('/exhibitions/{id}', [ExhibitionController::class, 'update']);
+    Route::delete('/exhibitions/{id}', [ExhibitionController::class, 'destroy']);
+});
+
 // Protected Business Card & AI Scanning Routes
 Route::middleware('api.auth')->group(function () {
     Route::post('/scan', [CardController::class, 'scan'])->middleware('throttle:20,1');
+    Route::post('/cards/upload-image', [CardController::class, 'uploadImage'])->middleware('throttle:30,1');
     Route::get('/cards', [CardController::class, 'index']);
     Route::post('/cards', [CardController::class, 'store']);
     Route::get('/cards/{id}', [CardController::class, 'show']);

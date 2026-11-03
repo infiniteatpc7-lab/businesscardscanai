@@ -12,10 +12,14 @@ import {
     LogOut,
     Briefcase,
     Users,
-    ChevronRight
+    ChevronRight,
+    Building2,
+    Calendar
 } from 'lucide-react';
 import WorkspaceModal from '../components/workspace/WorkspaceModal';
 import TeamMembersModal from '../components/workspace/TeamMembersModal';
+import ExhibitionSelectorModal from '../components/exhibition/ExhibitionSelectorModal';
+import ExhibitionManageModal from '../components/exhibition/ExhibitionManageModal';
 
 export default function MobileProfilePage({
     cardsCount = 0,
@@ -24,10 +28,14 @@ export default function MobileProfilePage({
     workspace = null,
     workspaces = [],
     onWorkspaceChanged,
+    currentExhibition = null,
+    onExhibitionChanged,
     onLogout
 }) {
     const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
     const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
+    const [isExhibitionSelectorOpen, setIsExhibitionSelectorOpen] = useState(false);
+    const [isExhibitionManageOpen, setIsExhibitionManageOpen] = useState(false);
 
     const displayName = user?.name || 'Saunak K.';
     const displayEmail = user?.email || 'booth@ceramix.com';
@@ -83,7 +91,56 @@ export default function MobileProfilePage({
                         <ChevronRight className="w-4 h-4" />
                     </div>
                 </button>
+
+                {/* Current Active Exhibition Trigger Bar */}
+                <button
+                    onClick={() => setIsExhibitionSelectorOpen(true)}
+                    className="w-full p-3 rounded-2xl bg-indigo-50/60 hover:bg-indigo-50 border border-indigo-200/60 flex items-center justify-between text-left transition-all active:scale-[0.98]"
+                >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-7 h-7 rounded-xl bg-white border border-indigo-200 flex items-center justify-center text-indigo-700">
+                            <Calendar className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="min-w-0">
+                            <span className="text-[10px] uppercase font-bold text-indigo-500 block">Selected Exhibition</span>
+                            <span className="text-xs font-bold text-indigo-950 truncate block">
+                                {currentExhibition?.name || 'General Exhibition'}
+                            </span>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-1 text-indigo-400">
+                        <span className="text-[11px] font-semibold text-indigo-600">Change</span>
+                        <ChevronRight className="w-4 h-4" />
+                    </div>
+                </button>
             </div>
+
+            {/* Exhibition Management (Owner & Admin) */}
+            {isOwnerOrAdmin && (
+                <div className="bg-white rounded-3xl p-5 shadow-behance border border-black/[0.04] space-y-3">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <Building2 className="w-4 h-4 text-zinc-800" />
+                            <h4 className="text-xs font-bold text-zinc-950">Exhibitions & Shows</h4>
+                        </div>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            Lead Capture
+                        </span>
+                    </div>
+
+                    <p className="text-xs text-zinc-500 leading-relaxed">
+                        Create and organize trade fair shows to segment leads and track staff scans.
+                    </p>
+
+                    <button
+                        onClick={() => setIsExhibitionManageOpen(true)}
+                        className="w-full py-2.5 px-3 rounded-xl bg-zinc-900 hover:bg-black text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                    >
+                        <Building2 className="w-3.5 h-3.5" />
+                        <span>Manage Exhibitions</span>
+                    </button>
+                </div>
+            )}
 
             {/* Team & Staff Management (Owner & Admin) */}
             {isOwnerOrAdmin && (
@@ -221,6 +278,23 @@ export default function MobileProfilePage({
                 onClose={() => setIsTeamModalOpen(false)}
                 workspace={workspace}
                 currentUser={user}
+            />
+
+            <ExhibitionSelectorModal
+                isOpen={isExhibitionSelectorOpen}
+                onClose={() => setIsExhibitionSelectorOpen(false)}
+                currentExhibition={currentExhibition}
+                onExhibitionChanged={onExhibitionChanged}
+                userRole={workspace?.role || 'member'}
+                onOpenManage={() => setIsExhibitionManageOpen(true)}
+            />
+
+            <ExhibitionManageModal
+                isOpen={isExhibitionManageOpen}
+                onClose={() => setIsExhibitionManageOpen(false)}
+                currentWorkspace={workspace}
+                userRole={workspace?.role || 'owner'}
+                onExhibitionUpdated={onExhibitionChanged}
             />
         </div>
     );

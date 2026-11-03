@@ -3,10 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\Card;
+use App\Models\CardScan;
+use App\Models\Exhibition;
+use App\Models\UserSelectedExhibition;
 use App\Models\Workspace;
 use App\Services\CardDuplicateDetector;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -28,6 +32,7 @@ class CardController extends Controller
 
     /**
      * Display a listing of saved cards scoped to the authenticated user's workspace.
+     * Supports optional exhibition filtering via ?exhibition_id=.
      */
     public function index(Request $request): JsonResponse
     {
@@ -36,7 +41,14 @@ class CardController extends Controller
 
         $query = Card::query()
             ->forWorkspace($workspace->id)
+            ->with(['exhibitions:id,name,status'])
             ->latest();
+
+        if ($exhibitionId = $request->input('exhibition_id')) {
+            $query->whereHas('exhibitions', function ($q) use ($exhibitionId) {
+                $q->where('exhibitions.id', $exhibitionId);
+            });
+        }
 
         if ($search = $request->input('search')) {
             $query->where(function ($q) use ($search) {
@@ -146,10 +158,21 @@ EOT;
             $lastError = $geminiResult['error'] ?? 'Unknown error';
         }
 
+        $storedBackPath = null;
+        if ($request->hasFile('back_image') || $request->filled('back_image_base64')) {
+            $validatedBack = $this->validateAndExtractImage($request, 'back_image', 'back_image_base64');
+            if ($validatedBack['success'] && ! empty($validatedBack['storage_path'])) {
+                $storedBackPath = $validatedBack['storage_path'];
+            }
+        }
+
         if (! $geminiResult || ! $geminiResult['success']) {
-            // Clean up stored image upon failed scan
+            // Clean up stored images upon failed scan
             if ($storedPath) {
                 Storage::disk('local')->delete($storedPath);
+            }
+            if ($storedBackPath) {
+                Storage::disk('local')->delete($storedBackPath);
             }
 
             Log::error('Gemini Card Vision API processing failure', [
@@ -165,10 +188,33 @@ EOT;
 
         $extractedData = $geminiResult['data'];
         $extractedData['image_path'] = $storedPath;
+        if ($storedBackPath) {
+            $extractedData['back_image_path'] = $storedBackPath;
+        }
 
         return response()->json([
             'success' => true,
             'data' => $extractedData,
+        ]);
+    }
+
+    /**
+     * Upload a standalone card image (e.g. back of card or replacement image).
+     */
+    public function uploadImage(Request $request): JsonResponse
+    {
+        $validatedImage = $this->validateAndExtractImage($request, 'image', 'image_base64');
+
+        if (! $validatedImage['success']) {
+            return response()->json([
+                'success' => false,
+                'message' => $validatedImage['error'],
+            ], $validatedImage['status'] ?? 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'image_path' => $validatedImage['storage_path'],
         ]);
     }
 
@@ -270,18 +316,18 @@ EOT;
     /**
      * Strictly validate image payload, MIME type, dimensions, and save to private storage.
      */
-    private function validateAndExtractImage(Request $request): array
+    private function validateAndExtractImage(Request $request, string $fileKey = 'image', string $base64Key = 'image_base64'): array
     {
         $rawBytes = null;
         $extension = 'jpg';
         $maxBytes = 16 * 1024 * 1024; // 16MB limit
 
-        if ($request->hasFile('image')) {
+        if ($request->hasFile($fileKey)) {
             $request->validate([
-                'image' => 'required|file|max:16384',
+                $fileKey => 'required|file|max:16384',
             ]);
 
-            $file = $request->file('image');
+            $file = $request->file($fileKey);
             if (! $file->isValid()) {
                 return ['success' => false, 'error' => 'Uploaded file is corrupted or incomplete.', 'status' => 422];
             }
@@ -292,8 +338,8 @@ EOT;
 
             $rawBytes = file_get_contents($file->getRealPath());
             $extension = strtolower($file->getClientOriginalExtension() ?: 'jpg');
-        } elseif ($request->filled('image_base64')) {
-            $raw = $request->input('image_base64');
+        } elseif ($request->filled($base64Key)) {
+            $raw = $request->input($base64Key);
 
             // Prevent oversized base64 payloads
             if (strlen($raw) > 25 * 1024 * 1024) {
@@ -408,12 +454,14 @@ EOT;
     }
 
     /**
-     * Store a scanned or edited card in the database with workspace-scoped duplicate detection.
+     * Store a scanned or edited card in the database with workspace-scoped duplicate detection,
+     * atomic exhibition association, and individual scan history tracking.
      */
     public function store(Request $request, CardDuplicateDetector $duplicateDetector): JsonResponse
     {
         /** @var Workspace $workspace */
         $workspace = $request->attributes->get('workspace');
+        $user = $request->user();
 
         $validated = $request->validate([
             'company' => 'nullable|string|max:255',
@@ -434,17 +482,68 @@ EOT;
             'accuracy_reason' => 'nullable|string',
             'detected_language' => 'nullable|string|max:100',
             'image_path' => 'nullable|string|max:500',
+            'back_image_path' => 'nullable|string|max:500',
             'raw_data' => 'nullable|array',
             'force_duplicate' => 'nullable|boolean',
+            'exhibition_id' => 'nullable|integer',
+            'link_existing_card_id' => 'nullable|integer',
+            'scan_notes' => 'nullable|string|max:1000',
         ]);
+
+        // Resolve active target exhibition
+        $exhibition = $this->resolveTargetExhibition($validated['exhibition_id'] ?? null, $workspace, $user->id);
+
+        // Case 1: Linking an existing canonical contact to this exhibition with a new scan event
+        if (! empty($validated['link_existing_card_id'])) {
+            $existingCard = Card::forWorkspace($workspace->id)->find($validated['link_existing_card_id']);
+            if (! $existingCard) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Specified contact card not found in this workspace.',
+                ], 404);
+            }
+
+            DB::transaction(function () use ($existingCard, $exhibition, $workspace, $user, $validated) {
+                // Associate with exhibition
+                $existingCard->exhibitions()->syncWithoutDetaching([
+                    $exhibition->id => ['created_at' => now()],
+                ]);
+
+                // Record fresh scan history
+                CardScan::create([
+                    'workspace_id' => $workspace->id,
+                    'card_id' => $existingCard->id,
+                    'exhibition_id' => $exhibition->id,
+                    'user_id' => $user->id,
+                    'scanned_at' => now(),
+                    'front_image_path' => $validated['image_path'] ?? $existingCard->image_path,
+                    'back_image_path' => $validated['back_image_path'] ?? $existingCard->back_image_path,
+                    'accuracy_score' => $validated['accuracy_score'] ?? 90,
+                    'notes' => $validated['scan_notes'] ?? null,
+                ]);
+            });
+
+            return response()->json([
+                'success' => true,
+                'linked' => true,
+                'message' => "Contact successfully linked to {$exhibition->name} with scan event recorded.",
+                'card' => $existingCard->load(['exhibitions', 'scans.user:id,name', 'scans.exhibition:id,name']),
+            ], 200);
+        }
 
         $forceDuplicate = filter_var($request->input('force_duplicate', false), FILTER_VALIDATE_BOOLEAN);
 
-        // Run duplicate detection strictly against cards in the current workspace
+        // Run duplicate detection strictly against cards in current workspace
         $duplicateResult = $duplicateDetector->detectDuplicates($validated, $workspace->id);
 
         if ($duplicateResult['has_duplicates']) {
             if (! $forceDuplicate) {
+                $matchingCardIds = collect($duplicateResult['matching_cards'])->pluck('id');
+                $alreadyInThisExhibition = DB::table('card_exhibitions')
+                    ->where('exhibition_id', $exhibition->id)
+                    ->whereIn('card_id', $matchingCardIds)
+                    ->exists();
+
                 $reasonText = match ($duplicateResult['primary_reason']) {
                     'phone' => 'A contact with this phone number is already saved in your directory.',
                     'email' => 'A contact with this email address is already saved in your directory.',
@@ -455,7 +554,14 @@ EOT;
                 return response()->json([
                     'success' => false,
                     'duplicate' => true,
-                    'message' => $reasonText,
+                    'already_in_exhibition' => $alreadyInThisExhibition,
+                    'target_exhibition' => [
+                        'id' => $exhibition->id,
+                        'name' => $exhibition->name,
+                    ],
+                    'message' => $alreadyInThisExhibition
+                        ? $reasonText." (Already recorded at {$exhibition->name})"
+                        : $reasonText." You can link this existing contact to {$exhibition->name} or save as a separate card.",
                     'match_reason' => $duplicateResult['primary_reason'],
                     'existing_cards' => $duplicateResult['matching_cards'],
                 ], 409);
@@ -469,32 +575,61 @@ EOT;
             ]);
         }
 
-        // Remove non-model attribute before Eloquent create
-        unset($validated['force_duplicate']);
+        // Case 2: Save new card + associate with exhibition + record scan event inside atomic transaction
+        $card = DB::transaction(function () use ($validated, $workspace, $user, $exhibition) {
+            $cardData = $validated;
+            unset(
+                $cardData['force_duplicate'],
+                $cardData['exhibition_id'],
+                $cardData['link_existing_card_id'],
+                $cardData['scan_notes']
+            );
 
-        // Explicitly assign workspace and creator user
-        $validated['workspace_id'] = $workspace->id;
-        $validated['user_id'] = $request->user()->id;
+            $cardData['workspace_id'] = $workspace->id;
+            $cardData['user_id'] = $user->id;
 
-        $card = Card::create($validated);
+            $newCard = Card::create($cardData);
+
+            // Associate with exhibition
+            $newCard->exhibitions()->syncWithoutDetaching([
+                $exhibition->id => ['created_at' => now()],
+            ]);
+
+            // Record atomic scan history
+            CardScan::create([
+                'workspace_id' => $workspace->id,
+                'card_id' => $newCard->id,
+                'exhibition_id' => $exhibition->id,
+                'user_id' => $user->id,
+                'scanned_at' => now(),
+                'front_image_path' => $cardData['image_path'] ?? null,
+                'back_image_path' => $cardData['back_image_path'] ?? null,
+                'accuracy_score' => $cardData['accuracy_score'] ?? 90,
+                'notes' => $validated['scan_notes'] ?? null,
+            ]);
+
+            return $newCard;
+        });
 
         return response()->json([
             'success' => true,
             'message' => 'Card saved successfully to database!',
-            'card' => $card,
+            'card' => $card->load(['exhibitions', 'scans.user:id,name', 'scans.exhibition:id,name']),
             'duplicate_override' => $forceDuplicate && $duplicateResult['has_duplicates'],
         ], 201);
     }
 
     /**
-     * Display the specified card scoped to the user's workspace.
+     * Display the specified card scoped to the user's workspace with exhibitions and scan history.
      */
     public function show(Request $request, int $id): JsonResponse
     {
         /** @var Workspace $workspace */
         $workspace = $request->attributes->get('workspace');
 
-        $card = Card::forWorkspace($workspace->id)->find($id);
+        $card = Card::forWorkspace($workspace->id)
+            ->with(['exhibitions', 'scans.user:id,name', 'scans.exhibition:id,name'])
+            ->find($id);
 
         if (! $card) {
             return response()->json([
@@ -545,6 +680,7 @@ EOT;
             'accuracy_reason' => 'nullable|string',
             'detected_language' => 'nullable|string|max:100',
             'image_path' => 'nullable|string|max:500',
+            'back_image_path' => 'nullable|string|max:500',
             'raw_data' => 'nullable|array',
         ]);
 
@@ -553,7 +689,7 @@ EOT;
         return response()->json([
             'success' => true,
             'message' => 'Card updated successfully.',
-            'card' => $card,
+            'card' => $card->load(['exhibitions', 'scans.user:id,name', 'scans.exhibition:id,name']),
         ]);
     }
 
@@ -584,9 +720,12 @@ EOT;
             ], 404);
         }
 
-        // If card has a private stored image, delete it
+        // Clean up private stored front and back images
         if ($card->image_path && Storage::disk('local')->exists($card->image_path)) {
             Storage::disk('local')->delete($card->image_path);
+        }
+        if ($card->back_image_path && Storage::disk('local')->exists($card->back_image_path)) {
+            Storage::disk('local')->delete($card->back_image_path);
         }
 
         $card->delete();
@@ -598,7 +737,7 @@ EOT;
     }
 
     /**
-     * Securely serve a card's image strictly to members of the workspace.
+     * Securely serve a card's front or back image strictly to members of the workspace.
      */
     public function image(Request $request, int $id): Response
     {
@@ -607,7 +746,16 @@ EOT;
 
         $card = Card::forWorkspace($workspace->id)->find($id);
 
-        if (! $card || ! $card->image_path) {
+        if (! $card) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Card not found.',
+            ], 404);
+        }
+
+        $targetPath = ($request->query('type') === 'back') ? $card->back_image_path : $card->image_path;
+
+        if (! $targetPath) {
             return response()->json([
                 'success' => false,
                 'message' => 'Card image not found.',
@@ -616,8 +764,8 @@ EOT;
 
         // Check private local storage first
         $localDisk = Storage::disk('local');
-        if ($localDisk->exists($card->image_path)) {
-            $resp = response()->file($localDisk->path($card->image_path));
+        if ($localDisk->exists($targetPath)) {
+            $resp = response()->file($localDisk->path($targetPath));
             $resp->setPrivate();
             $resp->setMaxAge(3600);
 
@@ -625,8 +773,8 @@ EOT;
         }
 
         // Check legacy public storage if applicable
-        if (str_starts_with($card->image_path, '/storage/')) {
-            $publicRelative = Str::after($card->image_path, '/storage/');
+        if (str_starts_with($targetPath, '/storage/')) {
+            $publicRelative = Str::after($targetPath, '/storage/');
             $publicDisk = Storage::disk('public');
             if ($publicDisk->exists($publicRelative)) {
                 $resp = response()->file($publicDisk->path($publicRelative));
@@ -641,5 +789,75 @@ EOT;
             'success' => false,
             'message' => 'Card image file missing on storage disk.',
         ], 404);
+    }
+
+    /**
+     * Resolve target exhibition for card association.
+     */
+    protected function resolveTargetExhibition(?int $exhibitionId, Workspace $workspace, int $userId): Exhibition
+    {
+        if ($exhibitionId) {
+            $exhibition = Exhibition::where('workspace_id', $workspace->id)->find($exhibitionId);
+            if (! $exhibition) {
+                abort(response()->json([
+                    'success' => false,
+                    'message' => 'Specified exhibition not found in this workspace.',
+                ], 404));
+            }
+
+            if ($exhibition->isArchived()) {
+                abort(response()->json([
+                    'success' => false,
+                    'message' => 'Cannot associate cards with an archived exhibition.',
+                ], 422));
+            }
+
+            return $exhibition;
+        }
+
+        // Resolve user's current selected exhibition
+        $selectedId = UserSelectedExhibition::where('user_id', $userId)
+            ->where('workspace_id', $workspace->id)
+            ->value('exhibition_id');
+
+        if ($selectedId) {
+            $selected = Exhibition::where('workspace_id', $workspace->id)
+                ->where('id', $selectedId)
+                ->first();
+
+            if ($selected && ! $selected->isArchived()) {
+                return $selected;
+            }
+        }
+
+        // Fallback: first active exhibition
+        $fallback = Exhibition::where('workspace_id', $workspace->id)
+            ->where('status', 'active')
+            ->first();
+
+        // Fallback 2: any non-archived exhibition
+        if (! $fallback) {
+            $fallback = Exhibition::where('workspace_id', $workspace->id)
+                ->where('status', '!=', 'archived')
+                ->first();
+        }
+
+        // Fallback 3: General Exhibition
+        if (! $fallback) {
+            $fallback = Exhibition::create([
+                'workspace_id' => $workspace->id,
+                'created_by_user_id' => $userId,
+                'name' => 'General Exhibition',
+                'description' => 'Default workspace collection for general cards and scans.',
+                'status' => 'active',
+            ]);
+        }
+
+        UserSelectedExhibition::updateOrCreate(
+            ['user_id' => $userId, 'workspace_id' => $workspace->id],
+            ['exhibition_id' => $fallback->id]
+        );
+
+        return $fallback;
     }
 }

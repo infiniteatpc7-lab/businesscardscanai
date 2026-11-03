@@ -13,19 +13,24 @@ import {
     X,
     Camera,
     UploadCloud,
-    Phone
+    Phone,
+    Calendar,
+    ChevronRight,
+    ImagePlus
 } from 'lucide-react';
 import CardUploadDropzone from '../components/scanner/CardUploadDropzone';
 import CardFormEditor from '../components/scanner/CardFormEditor';
 import DuplicateWarningModal from '../components/scanner/DuplicateWarningModal';
-import { scanCard, saveCard } from '../services/cardApi';
+import { scanCard, saveCard, uploadCardImage } from '../services/cardApi';
 import { downloadVCard, openWhatsApp, isLandlineNumber, initiatePhoneCall } from '../services/vcfHelper';
 import { useImageProcessor } from '../hooks/useImageProcessor';
 import { useToast } from '../context/ToastContext';
 
 export default function MobileScannerView({
     onCardSaved,
-    onNavigateToCards
+    onNavigateToCards,
+    currentExhibition,
+    onOpenExhibitionSelector
 }) {
     const { showToast } = useToast();
     const { compressImage } = useImageProcessor();
@@ -33,6 +38,11 @@ export default function MobileScannerView({
     const [imageFile, setImageFile] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
     const [imageFileName, setImageFileName] = useState('');
+
+    // Optional Back Image of Card
+    const [backImagePreview, setBackImagePreview] = useState(null);
+    const [isUploadingBack, setIsUploadingBack] = useState(false);
+
     const [isScanning, setIsScanning] = useState(false);
     const [scanProgress, setScanProgress] = useState('');
     const [scanError, setScanError] = useState(null);
@@ -50,6 +60,28 @@ export default function MobileScannerView({
         setImagePreview(dataUrl);
         setImageFileName(file.name);
         executeScan(optimizedFile, dataUrl);
+    };
+
+    // Handle Back Image Upload
+    const handleBackImageSelected = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setIsUploadingBack(true);
+        try {
+            const { file: optimizedFile, dataUrl } = await compressImage(file);
+            setBackImagePreview(dataUrl);
+            const res = await uploadCardImage({ file: optimizedFile });
+            if (res.success && res.image_path) {
+                setCardData(prev => prev ? { ...prev, back_image_path: res.image_path } : prev);
+                showToast('Card back photo attached!', 'success');
+            }
+        } catch (err) {
+            console.error('Back image upload error:', err);
+            showToast('Failed to attach card back', 'error');
+        } finally {
+            setIsUploadingBack(false);
+        }
     };
 
     // Load Sample Gujarati Card
@@ -75,6 +107,7 @@ export default function MobileScannerView({
         setImagePreview(null);
         setImageFile(null);
         setImageFileName('');
+        setBackImagePreview(null);
         setCardData(null);
         setScanError(null);
         setDuplicateWarning(null);
@@ -135,8 +168,8 @@ export default function MobileScannerView({
         }
     };
 
-    // Save to Database with Duplicate Detection
-    const handleSave = async (forceDuplicate = false) => {
+    // Save to Database with Exhibition Association & Duplicate Detection
+    const handleSave = async (forceDuplicate = false, linkExistingCardId = null) => {
         if (!cardData || isSaving) return;
         setIsSaving(true);
         try {
@@ -159,25 +192,32 @@ export default function MobileScannerView({
                 accuracy_reason: cardData.accuracy_reason || '',
                 detected_language: cardData.detected_language || 'Gujarati',
                 image_path: cardData.image_path || imagePreview,
+                back_image_path: cardData.back_image_path || null,
                 raw_data: cardData,
                 force_duplicate: forceDuplicate,
+                exhibition_id: currentExhibition?.id || null,
+                link_existing_card_id: linkExistingCardId,
             };
 
             const result = await saveCard(payload);
 
             if (result.success) {
                 setDuplicateWarning(null);
-                const successMsg = result.duplicate_override
-                    ? 'Card saved as new contact (override)!'
-                    : 'Card saved to business directory!';
+                const successMsg = result.linked
+                    ? `Contact linked to ${currentExhibition?.name || 'exhibition'}!`
+                    : result.duplicate_override
+                    ? 'Card saved as separate contact!'
+                    : `Card saved to ${currentExhibition?.name || 'directory'}!`;
                 showToast(successMsg, 'success');
                 if (onCardSaved) onCardSaved(result.card);
             } else if (result.duplicate || result.status === 409) {
-                // Show Duplicate Warning Modal with existing matches
+                // Show Duplicate Warning Modal with existing matches & exhibition linking option
                 setDuplicateWarning({
                     existingCards: result.existing_cards || [],
                     matchReason: result.match_reason || 'phone',
                     message: result.message,
+                    already_in_exhibition: result.already_in_exhibition,
+                    target_exhibition: result.target_exhibition,
                 });
             } else {
                 showToast(result.message || 'Error saving to database', 'error');
@@ -205,6 +245,29 @@ export default function MobileScannerView({
 
     return (
         <div className={`space-y-4 pb-24 ${!cardData ? 'flex-1 flex flex-col justify-center my-auto' : ''}`}>
+            {/* Active Exhibition Info Bar */}
+            {currentExhibition && (
+                <div className="flex items-center justify-between p-3 rounded-2xl bg-white border border-black/[0.05] shadow-xs">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-xl bg-indigo-50 border border-indigo-200/80 flex items-center justify-center text-indigo-600 shrink-0">
+                            <Calendar className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                            <span className="text-[10px] uppercase font-bold text-zinc-400 block">Tagged Exhibition</span>
+                            <span className="text-xs font-bold text-zinc-950 truncate block">{currentExhibition.name}</span>
+                        </div>
+                    </div>
+                    {onOpenExhibitionSelector && (
+                        <button
+                            onClick={onOpenExhibitionSelector}
+                            className="px-2.5 py-1 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[11px] font-bold active:scale-95 transition-all"
+                        >
+                            Change
+                        </button>
+                    )}
+                </div>
+            )}
+
             {/* Capture Area */}
             <CardUploadDropzone
                 imagePreview={imagePreview}
@@ -252,6 +315,35 @@ export default function MobileScannerView({
 
                     {/* Extracted Form Editor */}
                     <CardFormEditor cardData={cardData} onChange={handleFieldChange} />
+
+                    {/* Card Back Photo Attachment */}
+                    <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200/80 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-8 h-8 rounded-xl bg-white border border-zinc-200 flex items-center justify-center text-zinc-700 shrink-0">
+                                <ImagePlus className="w-4 h-4 text-zinc-600" />
+                            </div>
+                            <div className="min-w-0">
+                                <span className="text-xs font-bold text-zinc-900 block truncate">
+                                    {cardData.back_image_path || backImagePreview ? 'Card Back Attached' : 'Card Back Photo (Optional)'}
+                                </span>
+                                <span className="text-[10px] text-zinc-500 block truncate">
+                                    {cardData.back_image_path || backImagePreview ? 'Saved in individual scan history' : 'Capture product list, map or reverse notes'}
+                                </span>
+                            </div>
+                        </div>
+
+                        <label className="px-3 py-1.5 rounded-xl bg-white border border-zinc-200 hover:bg-zinc-100 text-zinc-800 text-[11px] font-bold cursor-pointer active:scale-95 transition-all shadow-2xs shrink-0">
+                            {isUploadingBack ? 'Attaching...' : (cardData.back_image_path || backImagePreview ? 'Change' : '+ Add Back')}
+                            <input
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                onChange={handleBackImageSelected}
+                                disabled={isUploadingBack}
+                                className="hidden"
+                            />
+                        </label>
+                    </div>
 
                     {/* Quick Direct Actions: Save to Phone, WhatsApp / Call */}
                     {primaryPhone && (
@@ -311,6 +403,7 @@ export default function MobileScannerView({
                 duplicateData={duplicateWarning}
                 onClose={() => setDuplicateWarning(null)}
                 onForceSave={() => handleSave(true)}
+                onLinkExisting={(existingCardId) => handleSave(false, existingCardId)}
                 onViewExisting={(existingCard) => {
                     setDuplicateWarning(null);
                     onNavigateToCards?.(existingCard);

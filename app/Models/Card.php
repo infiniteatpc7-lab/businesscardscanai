@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Card extends Model
 {
@@ -34,6 +36,7 @@ class Card extends Model
         'accuracy_reason',
         'detected_language',
         'image_path',
+        'back_image_path',
         'raw_data',
     ];
 
@@ -66,6 +69,23 @@ class Card extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Get the exhibitions this card is associated with.
+     */
+    public function exhibitions(): BelongsToMany
+    {
+        return $this->belongsToMany(Exhibition::class, 'card_exhibitions')
+            ->withPivot('created_at');
+    }
+
+    /**
+     * Get all scan records for this card.
+     */
+    public function scans(): HasMany
+    {
+        return $this->hasMany(CardScan::class);
     }
 
     /**

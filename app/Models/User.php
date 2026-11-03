@@ -59,6 +59,22 @@ class User extends Authenticatable
     }
 
     /**
+     * Get the exhibitions selected by this user across workspaces.
+     */
+    public function selectedExhibitions(): HasMany
+    {
+        return $this->hasMany(UserSelectedExhibition::class);
+    }
+
+    /**
+     * Get all card scans performed by this user.
+     */
+    public function cardScans(): HasMany
+    {
+        return $this->hasMany(CardScan::class);
+    }
+
+    /**
      * Create a new secure API token for this user.
      */
     public function createToken(string $name = 'default', ?\DateTimeInterface $expiresAt = null): array

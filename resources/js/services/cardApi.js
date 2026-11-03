@@ -54,9 +54,15 @@ export async function authFetch(url, options = {}) {
 
 /**
  * Fetch all cards for current workspace.
+ * Supports search and exhibition filtering.
  */
-export async function fetchCards(search = '') {
-    const url = search ? `/api/cards?search=${encodeURIComponent(search)}` : '/api/cards';
+export async function fetchCards(search = '', exhibitionId = '') {
+    const params = new URLSearchParams();
+    if (search) params.append('search', search);
+    if (exhibitionId) params.append('exhibition_id', exhibitionId);
+
+    const queryString = params.toString();
+    const url = queryString ? `/api/cards?${queryString}` : '/api/cards';
     const response = await authFetch(url);
     if (response.status === 401) {
         return { success: false, unauthenticated: true, cards: [] };
@@ -220,19 +226,92 @@ export async function acceptInvitation(token) {
 }
 
 /**
- * Securely fetch private card image via Bearer-authenticated blob request.
+ * Securely fetch private card image (front or back) via Bearer-authenticated blob request.
  * Credentials never touch the URL.
  */
-export async function fetchCardImageBlob(cardId) {
+export async function fetchCardImageBlob(cardId, type = 'front') {
     if (!cardId) return null;
     try {
-        const response = await authFetch(`/api/cards/${cardId}/image`);
+        const query = type === 'back' ? '?type=back' : '';
+        const response = await authFetch(`/api/cards/${cardId}/image${query}`);
         if (!response.ok) return null;
         const blob = await response.blob();
         return URL.createObjectURL(blob);
     } catch {
         return null;
     }
+}
+
+/**
+ * Upload a standalone card image (e.g. back of card or replacement image).
+ */
+export async function uploadCardImage({ file, base64Url }) {
+    const formData = new FormData();
+    if (file) {
+        formData.append('image', file);
+    } else if (base64Url) {
+        formData.append('image_base64', base64Url);
+    }
+
+    const response = await authFetch('/api/cards/upload-image', {
+        method: 'POST',
+        body: formData,
+    });
+    return response.json();
+}
+
+/**
+ * Exhibition APIs
+ */
+export async function fetchExhibitions(status = '') {
+    const url = status ? `/api/exhibitions?status=${encodeURIComponent(status)}` : '/api/exhibitions';
+    const response = await authFetch(url);
+    return response.json();
+}
+
+export async function fetchCurrentExhibition() {
+    const response = await authFetch('/api/exhibitions/current');
+    return response.json();
+}
+
+export async function selectCurrentExhibition(exhibitionId) {
+    const response = await authFetch('/api/exhibitions/current', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ exhibition_id: exhibitionId }),
+    });
+    return response.json();
+}
+
+export async function createExhibition(data) {
+    const response = await authFetch('/api/exhibitions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+    });
+    return response.json();
+}
+
+export async function updateExhibition(id, data) {
+    const response = await authFetch(`/api/exhibitions/${id}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+    });
+    return response.json();
+}
+
+export async function deleteExhibition(id) {
+    const response = await authFetch(`/api/exhibitions/${id}`, {
+        method: 'DELETE',
+    });
+    return response.json();
 }
 
 /**

@@ -15,12 +15,21 @@ export default function DuplicateWarningModal({
     duplicateData,
     onClose,
     onForceSave,
+    onLinkExisting,
     onViewExisting,
     isSaving = false
 }) {
     if (!isOpen || !duplicateData || typeof document === 'undefined') return null;
 
-    const { existingCards = [], matchReason = 'phone', message } = duplicateData;
+    const {
+        existingCards = [],
+        matchReason = 'phone',
+        message,
+        already_in_exhibition = false,
+        target_exhibition
+    } = duplicateData;
+
+    const firstMatchingCard = existingCards[0];
 
     const getReasonBadge = (reason) => {
         switch (reason) {
@@ -144,11 +153,35 @@ export default function DuplicateWarningModal({
 
                 {/* Action Buttons */}
                 <div className="pt-2 space-y-2">
+                    {/* Link to Current Exhibition Button (when contact scanned from another show) */}
+                    {!already_in_exhibition && firstMatchingCard && onLinkExisting && (
+                        <button
+                            onClick={() => onLinkExisting(firstMatchingCard.id)}
+                            disabled={isSaving}
+                            className="w-full py-3 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"
+                        >
+                            {isSaving ? (
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            ) : (
+                                <CopyCheck className="w-4 h-4 text-emerald-200" />
+                            )}
+                            <span>
+                                {isSaving
+                                    ? 'Linking Contact...'
+                                    : `Link to ${target_exhibition?.name || 'Current Exhibition'} & Log Scan`}
+                            </span>
+                        </button>
+                    )}
+
                     {/* Primary Override Button */}
                     <button
                         onClick={onForceSave}
                         disabled={isSaving}
-                        className="w-full py-3 px-4 rounded-2xl bg-black hover:bg-zinc-800 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"
+                        className={`w-full py-3 px-4 rounded-2xl ${
+                            !already_in_exhibition && firstMatchingCard && onLinkExisting
+                                ? 'bg-zinc-900 hover:bg-zinc-800 text-zinc-100'
+                                : 'bg-black hover:bg-zinc-800 text-white'
+                        } disabled:opacity-50 text-xs font-bold transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2`}
                     >
                         {isSaving ? (
                             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>

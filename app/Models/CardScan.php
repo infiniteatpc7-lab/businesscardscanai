@@ -1,0 +1,74 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class CardScan extends Model
+{
+    use HasFactory;
+
+    /**
+     * The attributes that are mass assignable.
+     *
+     * @var list<string>
+     */
+    protected $fillable = [
+        'workspace_id',
+        'card_id',
+        'exhibition_id',
+        'user_id',
+        'scanned_at',
+        'front_image_path',
+        'back_image_path',
+        'accuracy_score',
+        'notes',
+    ];
+
+    /**
+     * The attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'scanned_at' => 'datetime',
+            'accuracy_score' => 'integer',
+        ];
+    }
+
+    /**
+     * Get the workspace where the scan occurred.
+     */
+    public function workspace(): BelongsTo
+    {
+        return $this->belongsTo(Workspace::class);
+    }
+
+    /**
+     * Get the card associated with this scan.
+     */
+    public function card(): BelongsTo
+    {
+        return $this->belongsTo(Card::class);
+    }
+
+    /**
+     * Get the exhibition where this scan was captured.
+     */
+    public function exhibition(): BelongsTo
+    {
+        return $this->belongsTo(Exhibition::class);
+    }
+
+    /**
+     * Get the staff user who performed the scan.
+     */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+}

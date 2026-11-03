@@ -24,6 +24,7 @@ import CardFormEditor from '../components/scanner/CardFormEditor';
 import { downloadVCard, openWhatsApp, isLandlineNumber, initiatePhoneCall } from '../services/vcfHelper';
 import { deleteCard, saveCard, updateCard, getCardImageUrl, fetchCardImageBlob } from '../services/cardApi';
 import { useToast } from '../context/ToastContext';
+import { Calendar, Building2, Layers } from 'lucide-react';
 
 export default function MobileCardsPage({
     cards,
@@ -31,13 +32,18 @@ export default function MobileCardsPage({
     onNavigateToScan,
     onExportCSV,
     initialSelectedCard = null,
-    onClearSelectedCard
+    onClearSelectedCard,
+    exhibitions = [],
+    currentExhibition = null
 }) {
     const { showToast } = useToast();
     const [searchTerm, setSearchTerm] = useState('');
     const [filterScript, setFilterScript] = useState('all'); // 'all' | 'gujarati' | 'english'
+    const [selectedExhibitionFilter, setSelectedExhibitionFilter] = useState('all');
     const [selectedCard, setSelectedCard] = useState(initialSelectedCard);
     const [cardImageBlobUrl, setCardImageBlobUrl] = useState(null);
+    const [backImageBlobUrl, setBackImageBlobUrl] = useState(null);
+    const [activeImageTab, setActiveImageTab] = useState('front'); // 'front' | 'back'
 
     // Edit mode states
     const [isEditing, setIsEditing] = useState(false);
@@ -110,29 +116,51 @@ export default function MobileCardsPage({
 
     useEffect(() => {
         let active = true;
-        let createdUrl = null;
+        let createdFrontUrl = null;
+        let createdBackUrl = null;
+        setActiveImageTab('front');
 
         if (selectedCard?.id) {
-            fetchCardImageBlob(selectedCard.id).then((url) => {
+            // Fetch front photo
+            fetchCardImageBlob(selectedCard.id, 'front').then((url) => {
                 if (active && url) {
-                    createdUrl = url;
+                    createdFrontUrl = url;
                     setCardImageBlobUrl(url);
                 }
             });
+
+            // Fetch back photo if exists
+            if (selectedCard.back_image_path) {
+                fetchCardImageBlob(selectedCard.id, 'back').then((url) => {
+                    if (active && url) {
+                        createdBackUrl = url;
+                        setBackImageBlobUrl(url);
+                    }
+                });
+            } else {
+                setBackImageBlobUrl(null);
+            }
         } else {
             setCardImageBlobUrl(null);
+            setBackImageBlobUrl(null);
         }
 
         return () => {
             active = false;
-            if (createdUrl) {
-                URL.revokeObjectURL(createdUrl);
-            }
+            if (createdFrontUrl) URL.revokeObjectURL(createdFrontUrl);
+            if (createdBackUrl) URL.revokeObjectURL(createdBackUrl);
         };
     }, [selectedCard?.id]);
 
-    // Filter cards
+    // Filter cards by Search, Script, and Exhibition
     const filteredCards = cards.filter((card) => {
+        // Exhibition filter
+        if (selectedExhibitionFilter !== 'all') {
+            const exId = Number(selectedExhibitionFilter);
+            const matchesExhibition = Array.isArray(card.exhibitions) && card.exhibitions.some(e => e.id === exId);
+            if (!matchesExhibition) return false;
+        }
+
         const q = searchTerm.toLowerCase();
         const matchesQuery =
             !q ||
@@ -214,7 +242,7 @@ export default function MobileCardsPage({
         }
     };
 
-    const hasFiltersApplied = searchTerm.trim().length > 0 || filterScript !== 'all';
+    const hasFiltersApplied = searchTerm.trim().length > 0 || filterScript !== 'all' || selectedExhibitionFilter !== 'all';
 
     return (
         <div className="space-y-4 pb-24">
@@ -282,6 +310,25 @@ export default function MobileCardsPage({
                         <FileSpreadsheet className="w-4 h-4" />
                     </button>
                 </div>
+
+                {/* Exhibition Filter Dropdown */}
+                {exhibitions.length > 0 && (
+                    <div className="flex items-center gap-1.5 pt-2 border-t border-zinc-100">
+                        <Calendar className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                        <select
+                            value={selectedExhibitionFilter}
+                            onChange={(e) => setSelectedExhibitionFilter(e.target.value)}
+                            className="flex-1 bg-zinc-50 border border-zinc-200/80 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-zinc-800 focus:outline-none focus:ring-1 focus:ring-black"
+                        >
+                            <option value="all">All Shows ({cards.length} cards)</option>
+                            {exhibitions.map((ex) => (
+                                <option key={ex.id} value={ex.id}>
+                                    {ex.name} ({ex.cards_count || 0})
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                )}
             </div>
 
             {/* Filter Result Counter / Swipe Hint */}
@@ -437,25 +484,66 @@ export default function MobileCardsPage({
                         ) : (
                             /* Normal View Mode */
                             <>
-                                {/* Card Image Preview if available */}
+                                {/* Front / Back Image Tabs & Preview */}
                                 {(cardImageBlobUrl || getCardImageUrl(selectedCard) || selectedCard.image_path) && (
-                                    <div className="rounded-2xl overflow-hidden border border-zinc-200 bg-zinc-900 shadow-inner">
-                                        <img
-                                            src={cardImageBlobUrl || getCardImageUrl(selectedCard) || selectedCard.image_path}
-                                            alt="Scanned Card"
-                                            className="w-full max-h-48 object-contain mx-auto"
-                                        />
+                                    <div className="space-y-2">
+                                        {selectedCard.back_image_path && (
+                                            <div className="flex items-center gap-1.5 p-1 bg-zinc-100 rounded-xl max-w-[200px]">
+                                                <button
+                                                    onClick={() => setActiveImageTab('front')}
+                                                    className={`flex-1 py-1 px-2.5 rounded-lg text-[10px] font-bold transition-all ${
+                                                        activeImageTab === 'front'
+                                                            ? 'bg-white text-zinc-950 shadow-xs'
+                                                            : 'text-zinc-500 hover:text-zinc-800'
+                                                    }`}
+                                                >
+                                                    Front Image
+                                                </button>
+                                                <button
+                                                    onClick={() => setActiveImageTab('back')}
+                                                    className={`flex-1 py-1 px-2.5 rounded-lg text-[10px] font-bold transition-all ${
+                                                        activeImageTab === 'back'
+                                                            ? 'bg-white text-zinc-950 shadow-xs'
+                                                            : 'text-zinc-500 hover:text-zinc-800'
+                                                    }`}
+                                                >
+                                                    Back Image
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        <div className="rounded-2xl overflow-hidden border border-zinc-200 bg-zinc-900 shadow-inner">
+                                            <img
+                                                src={
+                                                    activeImageTab === 'back'
+                                                        ? (backImageBlobUrl || selectedCard.back_image_path)
+                                                        : (cardImageBlobUrl || getCardImageUrl(selectedCard) || selectedCard.image_path)
+                                                }
+                                                alt="Scanned Card"
+                                                className="w-full max-h-48 object-contain mx-auto"
+                                            />
+                                        </div>
                                     </div>
                                 )}
 
-                                {/* Language Tag */}
-                                {selectedCard.detected_language && (
-                                    <div className="flex items-center gap-2">
+                                {/* Language & Exhibition Badges */}
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                    {selectedCard.detected_language && (
                                         <span className="text-[10px] uppercase font-mono font-bold text-zinc-600 px-2.5 py-0.5 rounded-full bg-zinc-100">
                                             {selectedCard.detected_language}
                                         </span>
-                                    </div>
-                                )}
+                                    )}
+
+                                    {Array.isArray(selectedCard.exhibitions) && selectedCard.exhibitions.map((ex) => (
+                                        <span
+                                            key={ex.id}
+                                            className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200/80 flex items-center gap-1"
+                                        >
+                                            <Calendar className="w-2.5 h-2.5" />
+                                            <span>{ex.name}</span>
+                                        </span>
+                                    ))}
+                                </div>
 
                                 {/* Details Fields */}
                                 <div className="space-y-2 text-xs">
@@ -540,6 +628,36 @@ export default function MobileCardsPage({
                                             {selectedCard.address_english && selectedCard.address_english !== selectedCard.address && (
                                                 <p className="text-zinc-500 text-[11px]">{selectedCard.address_english}</p>
                                             )}
+                                        </div>
+                                    )}
+
+                                    {/* Individual Scan History Breakdown */}
+                                    {Array.isArray(selectedCard.scans) && selectedCard.scans.length > 0 && (
+                                        <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60 space-y-2">
+                                            <div className="flex items-center justify-between text-[10px] uppercase font-bold text-zinc-400">
+                                                <span>Scan Capture History</span>
+                                                <span>{selectedCard.scans.length} events</span>
+                                            </div>
+                                            <div className="space-y-1.5 max-h-36 overflow-y-auto pr-0.5">
+                                                {selectedCard.scans.map((scan) => (
+                                                    <div
+                                                        key={scan.id}
+                                                        className="p-2 rounded-xl bg-white border border-zinc-200 flex items-center justify-between text-[11px]"
+                                                    >
+                                                        <div className="min-w-0 pr-2">
+                                                            <span className="font-bold text-zinc-900 block truncate">
+                                                                {scan.exhibition?.name || 'Exhibition Scan'}
+                                                            </span>
+                                                            <span className="text-zinc-400 text-[10px] block truncate">
+                                                                By {scan.user?.name || 'Staff'} • {scan.scanned_at ? new Date(scan.scanned_at).toLocaleDateString() : 'Recorded'}
+                                                            </span>
+                                                        </div>
+                                                        <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full shrink-0">
+                                                            {scan.accuracy_score || 90}%
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
                                         </div>
                                     )}
                                 </div>

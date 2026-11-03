@@ -50,6 +50,22 @@ class Workspace extends Model
     }
 
     /**
+     * Get all exhibitions belonging to this workspace.
+     */
+    public function exhibitions(): HasMany
+    {
+        return $this->hasMany(Exhibition::class);
+    }
+
+    /**
+     * Get all card scans performed in this workspace.
+     */
+    public function cardScans(): HasMany
+    {
+        return $this->hasMany(CardScan::class);
+    }
+
+    /**
      * Get the role of a specific user in this workspace.
      */
     public function getUserRole(User|int $user): ?string
