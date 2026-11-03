@@ -44,7 +44,24 @@ class AuthenticateApiToken
         // Attach user to request
         $request->setUserResolver(fn () => $user);
 
-        // 2. Resolve active workspace (honors persistent user selection, with optional header override)
+        // 2. Suspension Enforcement: Protected customer operations are strictly blocked for suspended accounts
+        if ($user->isSuspended()) {
+            $isAllowedRecoveryRoute = $request->is('api/auth/user') || $request->is('api/auth/logout');
+
+            if (! $isAllowedRecoveryRoute) {
+                return response()->json([
+                    'success' => false,
+                    'error_code' => 'ACCOUNT_SUSPENDED',
+                    'message' => 'Your account has been suspended by the platform administrator.',
+                    'status' => 'suspended',
+                    'suspension_reason' => $user->suspension_reason,
+                    'suspended_at' => $user->suspended_at?->toIso8601String(),
+                    'support_contact' => 'support@businesscardscan.ai',
+                ], 403);
+            }
+        }
+
+        // 3. Resolve active workspace (honors persistent user selection, with optional header override)
         $requestedWorkspaceId = $request->header('X-Workspace-Id');
         $workspace = null;
 
@@ -69,6 +86,17 @@ class AuthenticateApiToken
             return response()->json([
                 'success' => false,
                 'message' => 'User does not belong to any active workspace.',
+            ], 403);
+        }
+
+        if ($workspace->isSuspended()) {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'WORKSPACE_SUSPENDED',
+                'message' => 'This workspace has been suspended by the platform administrator.',
+                'status' => 'suspended',
+                'suspension_reason' => $workspace->suspension_reason,
+                'support_contact' => 'support@businesscardscan.ai',
             ], 403);
         }
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import MobileHeader from './layouts/MobileHeader';
 import MobileBottomNav from './layouts/MobileBottomNav';
 import MobileHomePage from './pages/MobileHomePage';
@@ -243,6 +244,26 @@ function MobileAppContent() {
                         }, 100);
                     }}
                 />
+
+                {/* Account / Workspace Suspension Recovery Banner */}
+                {(authUser?.status === 'suspended' || authWorkspace?.status === 'suspended') && (
+                    <div className="mx-4 mt-3 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-900 text-xs flex items-start space-x-2.5">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                            <p className="font-bold text-amber-900">
+                                {authUser?.status === 'suspended' ? 'Account Suspended' : 'Workspace Suspended'}
+                            </p>
+                            <p className="text-[11px] text-amber-800 mt-0.5">
+                                {authUser?.status === 'suspended'
+                                    ? (authUser?.suspension_reason ? `Reason: ${authUser.suspension_reason}` : 'Your account access has been restricted by an administrator.')
+                                    : (authWorkspace?.suspension_reason ? `Reason: ${authWorkspace.suspension_reason}` : 'This workspace has been suspended by an administrator.')}
+                            </p>
+                            <p className="text-[10px] text-amber-700/80 mt-1">
+                                Scanning and card creation are paused. Your cards and data are fully preserved.
+                            </p>
+                        </div>
+                    </div>
+                )}
 
                 {/* Page Content Body */}
                 <main className="flex-1 p-4 relative z-10 overflow-y-auto flex flex-col">

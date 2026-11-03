@@ -21,7 +21,38 @@ class Workspace extends Model
         'name',
         'slug',
         'owner_id',
+        'status',
+        'suspended_at',
+        'suspension_reason',
     ];
+
+    /**
+     * The attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'suspended_at' => 'datetime',
+        ];
+    }
+
+    /**
+     * Determine if workspace is suspended.
+     */
+    public function isSuspended(): bool
+    {
+        return $this->status === 'suspended';
+    }
+
+    /**
+     * Determine if workspace is active.
+     */
+    public function isActive(): bool
+    {
+        return $this->status === 'active';
+    }
 
     /**
      * Get the owner of the workspace.

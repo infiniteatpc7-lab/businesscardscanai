@@ -102,6 +102,9 @@ class AuthController extends Controller
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
+                'status' => $user->status ?? 'active',
+                'suspension_reason' => $user->suspension_reason,
+                'suspended_at' => $user->suspended_at?->toIso8601String(),
             ],
             'workspace' => $workspace ? [
                 'id' => $workspace->id,
@@ -155,6 +158,9 @@ class AuthController extends Controller
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
+                'status' => $user->status ?? 'active',
+                'suspension_reason' => $user->suspension_reason,
+                'suspended_at' => $user->suspended_at?->toIso8601String(),
             ],
             'current_workspace' => [
                 'id' => $workspace->id,

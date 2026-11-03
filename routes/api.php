@@ -4,6 +4,11 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BulkImportController;
 use App\Http\Controllers\CardController;
 use App\Http\Controllers\ExhibitionController;
+use App\Http\Controllers\PlatformAdmin\AdminAuditLogController;
+use App\Http\Controllers\PlatformAdmin\AdminAuthController;
+use App\Http\Controllers\PlatformAdmin\AdminCustomerController;
+use App\Http\Controllers\PlatformAdmin\AdminDashboardController;
+use App\Http\Controllers\PlatformAdmin\AdminWorkspaceController;
 use App\Http\Controllers\WorkspaceController;
 use Illuminate\Support\Facades\Route;
 
@@ -73,4 +78,36 @@ Route::middleware('api.auth')->group(function () {
     Route::post('/bulk-imports/{uuid}/items/{itemId}/retry', [BulkImportController::class, 'retryItem']);
     Route::post('/bulk-imports/{uuid}/commit', [BulkImportController::class, 'commit']);
     Route::post('/bulk-imports/{uuid}/cancel', [BulkImportController::class, 'cancel']);
+});
+
+// ==========================================
+// Platform Admin Routes (Strictly Isolated)
+// ==========================================
+Route::prefix('platform-admin')->group(function () {
+    // Public Admin Auth (Rate limited)
+    Route::post('/auth/login', [AdminAuthController::class, 'login'])->middleware('throttle:10,1');
+
+    // Authenticated Admin Routes (Exclusive Platform Admin Token Guard)
+    Route::middleware('platform.admin.auth')->group(function () {
+        Route::get('/auth/me', [AdminAuthController::class, 'me']);
+        Route::post('/auth/logout', [AdminAuthController::class, 'logout']);
+
+        // Dashboard Metrics
+        Route::get('/dashboard/stats', [AdminDashboardController::class, 'stats']);
+
+        // Customer Management
+        Route::get('/customers', [AdminCustomerController::class, 'index']);
+        Route::get('/customers/{id}', [AdminCustomerController::class, 'show']);
+        Route::post('/customers/{id}/suspend', [AdminCustomerController::class, 'suspend']);
+        Route::post('/customers/{id}/activate', [AdminCustomerController::class, 'activate']);
+
+        // Workspace Management
+        Route::get('/workspaces', [AdminWorkspaceController::class, 'index']);
+        Route::get('/workspaces/{id}', [AdminWorkspaceController::class, 'show']);
+        Route::post('/workspaces/{id}/suspend', [AdminWorkspaceController::class, 'suspend']);
+        Route::post('/workspaces/{id}/activate', [AdminWorkspaceController::class, 'activate']);
+
+        // Audit Logs
+        Route::get('/audit-logs', [AdminAuditLogController::class, 'index']);
+    });
 });

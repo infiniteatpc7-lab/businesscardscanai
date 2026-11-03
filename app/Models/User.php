@@ -7,12 +7,13 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password', 'current_workspace_id'])]
+#[Fillable(['name', 'email', 'password', 'current_workspace_id', 'status', 'suspended_at', 'suspension_reason', 'suspended_by_admin_id'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -29,6 +30,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'suspended_at' => 'datetime',
         ];
     }
 
@@ -144,5 +146,29 @@ class User extends Authenticatable
     public function sentInvitations(): HasMany
     {
         return $this->hasMany(WorkspaceInvitation::class, 'inviter_id');
+    }
+
+    /**
+     * Platform administrator who suspended this customer.
+     */
+    public function suspendedByAdmin(): BelongsTo
+    {
+        return $this->belongsTo(PlatformAdmin::class, 'suspended_by_admin_id');
+    }
+
+    /**
+     * Determine if customer account is suspended.
+     */
+    public function isSuspended(): bool
+    {
+        return $this->status === 'suspended';
+    }
+
+    /**
+     * Determine if customer account is active.
+     */
+    public function isActive(): bool
+    {
+        return $this->status === 'active';
     }
 }
