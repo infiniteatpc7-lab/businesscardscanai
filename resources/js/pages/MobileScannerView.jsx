@@ -248,7 +248,11 @@ export default function MobileScannerView({
     const isLandline = isLandlineNumber(primaryPhone);
 
     return (
-        <div className={`space-y-4 pb-24 ${(!cardData && scanMode === 'single') || (scanMode === 'bulk' && isBulkIdle) ? 'flex-1 flex flex-col justify-center my-auto' : ''}`}>
+        <div className={`space-y-4 ${
+            (!cardData && scanMode === 'single') || (scanMode === 'bulk' && isBulkIdle)
+                ? 'flex-1 flex flex-col justify-center pb-12'
+                : 'pb-24'
+        }`}>
             {/* Scan Mode Switcher (Single vs Bulk Import) */}
             <div className="flex items-center p-1 bg-zinc-100 rounded-2xl">
                 <button

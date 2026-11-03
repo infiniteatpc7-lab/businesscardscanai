@@ -463,21 +463,46 @@ export default function BulkImportView({
     const handleCommitBatch = async () => {
         if (!activeBatch) return;
 
-        const itemsToSave = items.filter((it) => it.status !== 'saved');
+        // Check if an item has actual contact data
+        const hasContactData = (item) => {
+            const data = item.extracted_data || {};
+            const comp = typeof data.company === 'string' && data.company.trim().length > 0;
+            const compEng = typeof data.company_english === 'string' && data.company_english.trim().length > 0;
+            const name = typeof data.name === 'string' && data.name.trim().length > 0;
+            const nameEng = typeof data.name_english === 'string' && data.name_english.trim().length > 0;
+            const phone = Array.isArray(data.phone)
+                ? data.phone.some((p) => p && String(p).trim().length > 0)
+                : Boolean(data.phone && String(data.phone).trim().length > 0);
+            return comp || compEng || name || nameEng || phone;
+        };
+
+        // Filter valid cards that have real extracted or edited contact data
+        const itemsToSave = items.filter((it) => it.status !== 'saved' && it.status !== 'skipped' && hasContactData(it));
+        const blankCount = items.filter((it) => it.status !== 'saved' && !hasContactData(it)).length;
+
         if (itemsToSave.length === 0) {
-            showToast('No cards to save', 'info');
+            showToast('No cards with contact data found. Please tap and enter details for failed cards first.', 'warning');
             return;
+        }
+
+        if (blankCount > 0) {
+            showToast(`Saving ${itemsToSave.length} valid cards (${blankCount} blank/failed cards excluded)`, 'info');
         }
 
         setPhase('saving');
         setCommitProgress({ saved: 0, total: itemsToSave.length, results: [] });
 
-        const payloadItems = itemsToSave.map((it) => ({
-            id: it.id,
-            decision: it.decision || (it.status === 'duplicate_detected' ? 'link_existing' : 'create_new'),
-            matched_card_id: it.matched_card_id || null,
-            scan_notes: `Bulk import ${activeBatch.batch_uuid.substring(0, 8)}`,
-        }));
+        const payloadItems = itemsToSave.map((it) => {
+            const isDup = it.status === 'duplicate_detected';
+            // Default duplicate to link_existing unless user explicitly changed it
+            const decision = it.decision || (isDup ? 'link_existing' : 'create_new');
+            return {
+                id: it.id,
+                decision: decision,
+                matched_card_id: it.matched_card_id || null,
+                scan_notes: `Bulk import ${activeBatch.batch_uuid.substring(0, 8)}`,
+            };
+        });
 
         try {
             const res = await commitBulkImport(activeBatch.batch_uuid, payloadItems);
@@ -568,7 +593,11 @@ export default function BulkImportView({
                         {/* Dropzone for Multi-Photo Picker */}
                         <div
                             onClick={() => fileInputRef.current?.click()}
-                            className="border-2 border-dashed border-zinc-200 hover:border-zinc-400 bg-zinc-50/60 hover:bg-zinc-50 rounded-2xl p-6 text-center cursor-pointer transition-all group"
+                            className={`border-2 border-dashed border-zinc-200 hover:border-zinc-400 bg-zinc-50/60 hover:bg-zinc-50 rounded-2xl text-center cursor-pointer transition-all group ${
+                                selectedPhotos.length === 0
+                                    ? 'py-12 px-6 sm:py-16 sm:px-8 flex flex-col items-center justify-center min-h-[220px]'
+                                    : 'p-6'
+                            }`}
                         >
                             <input
                                 ref={fileInputRef}
@@ -578,8 +607,8 @@ export default function BulkImportView({
                                 className="hidden"
                                 onChange={handlePhotosSelected}
                             />
-                            <div className="w-12 h-12 mx-auto mb-3 rounded-2xl bg-white shadow-sm border border-zinc-200 flex items-center justify-center group-hover:scale-105 transition-transform text-zinc-600">
-                                <UploadCloud className="w-6 h-6" />
+                            <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-white shadow-sm border border-zinc-200 flex items-center justify-center group-hover:scale-105 transition-transform text-zinc-600">
+                                <UploadCloud className="w-7 h-7" />
                             </div>
                             <h4 className="text-sm font-bold text-zinc-900 mb-1">
                                 Tap to select photos from gallery
@@ -771,7 +800,7 @@ export default function BulkImportView({
                                     const isFail = item.status === 'failed';
                                     const isCur = item.status === 'extracting';
                                     const parsed = item.extracted_data || item.parsed_data || {};
-                                    const canView = isDone || isDup;
+                                    const canView = isDone || isDup || isFail;
 
                                     return (
                                         <div
@@ -794,7 +823,7 @@ export default function BulkImportView({
                                                     ? 'bg-blue-50/50 border-blue-300 ring-2 ring-blue-400/20'
                                                     : 'bg-zinc-50 border-zinc-200'
                                             }`}
-                                            title={canView ? 'Tap to view card details' : ''}
+                                            title={canView ? (isFail ? 'Tap to view photo and enter details' : 'Tap to view card details') : ''}
                                         >
                                             <div className="flex items-center justify-between mb-1.5">
                                                 <span className="text-[10px] font-mono font-bold text-zinc-400">
@@ -958,10 +987,21 @@ export default function BulkImportView({
                             </span>
                             <button
                                 onClick={() => setEditingItemIndex(null)}
-                                className="w-7 h-7 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-500"
+                                className="w-7 h-7 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-500 hover:bg-zinc-200 transition-colors"
                             >
                                 <X className="w-3.5 h-3.5" />
                             </button>
+                        </div>
+
+                        {/* Card Image Preview */}
+                        <div className="relative aspect-[3/2] w-full max-h-48 rounded-2xl overflow-hidden bg-zinc-950 border border-zinc-200">
+                            <BulkItemThumbnail batchUuid={activeBatch?.batch_uuid} itemId={filteredItems[editingItemIndex]?.id} />
+                            {filteredItems[editingItemIndex]?.status === 'failed' && (
+                                <div className="absolute bottom-2 left-2 right-2 px-2.5 py-1.5 rounded-xl bg-red-600/90 text-white text-[11px] font-semibold backdrop-blur-xs flex items-center justify-between">
+                                    <span>OCR could not read details</span>
+                                    <span className="text-[10px] font-bold">Type details below</span>
+                                </div>
+                            )}
                         </div>
 
                         {/* Duplicate Decision Selector if match exists */}

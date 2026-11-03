@@ -31,6 +31,9 @@ export default function SwipeableCardItem({
     const startYRef = useRef(0);
     const isHorizontalRef = useRef(null);
     const itemRef = useRef(null);
+    const touchStartRef = useRef({ x: 0, y: 0, time: 0 });
+    const hasMovedRef = useRef(false);
+    const lastTapTimeRef = useRef(0);
 
     const primaryPhone = Array.isArray(card.phone) && card.phone.length > 0
         ? card.phone[0]
@@ -45,6 +48,8 @@ export default function SwipeableCardItem({
         const touch = e.touches[0];
         startXRef.current = touch.clientX;
         startYRef.current = touch.clientY;
+        touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+        hasMovedRef.current = false;
         isHorizontalRef.current = null;
         setIsSwiping(true);
     };
@@ -54,6 +59,10 @@ export default function SwipeableCardItem({
         const touch = e.touches[0];
         const deltaX = touch.clientX - startXRef.current;
         const deltaY = touch.clientY - startYRef.current;
+
+        if (Math.abs(deltaX) > 6 || Math.abs(deltaY) > 6) {
+            hasMovedRef.current = true;
+        }
 
         // Determine if scroll is horizontal or vertical on first movement
         if (isHorizontalRef.current === null) {
@@ -82,6 +91,15 @@ export default function SwipeableCardItem({
     const handleTouchEnd = () => {
         if (!isSwiping) return;
         setIsSwiping(false);
+
+        // Direct mobile tap detection (fast release with minimal movement)
+        if (!hasMovedRef.current && (Date.now() - touchStartRef.current.time < 350)) {
+            lastTapTimeRef.current = Date.now();
+            onSelectCard(card);
+            setOffsetX(0);
+            isHorizontalRef.current = null;
+            return;
+        }
 
         // Haptic feedback if supported
         const triggerHaptic = () => {
@@ -208,6 +226,8 @@ export default function SwipeableCardItem({
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
                 onClick={() => {
+                    // Prevent duplicate if already handled by touchEnd within last 450ms
+                    if (Date.now() - lastTapTimeRef.current < 450) return;
                     if (Math.abs(offsetX) < 15) {
                         onSelectCard(card);
                     }

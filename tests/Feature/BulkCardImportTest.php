@@ -499,4 +499,147 @@ class BulkCardImportTest extends TestCase
             ->postJson("/api/bulk-imports/{$batchA->batch_uuid}/commit", ['items' => []]);
         $resCommit->assertStatus(404);
     }
+
+    /**
+     * 10. Strict Blank Card Guard: Failed or blank cards with no contact data are NEVER saved as Cards.
+     */
+    public function test_blank_or_failed_cards_without_contact_details_are_skipped_and_never_create_card_records(): void
+    {
+        Storage::fake('public');
+        $ws = $this->createWorkspaceUser('Blank Guard Test', 'blankguard@example.com', 'owner');
+        $ex = Exhibition::create([
+            'workspace_id' => $ws['workspace']->id,
+            'created_by_user_id' => $ws['user']->id,
+            'name' => 'Blank Test Expo',
+            'status' => 'active',
+        ]);
+
+        $batch = BulkImport::create([
+            'workspace_id' => $ws['workspace']->id,
+            'user_id' => $ws['user']->id,
+            'exhibition_id' => $ex->id,
+            'batch_uuid' => 'blank-guard-batch-uuid',
+            'status' => 'ready_for_review',
+        ]);
+
+        $initialCardCount = Card::where('workspace_id', $ws['workspace']->id)->count();
+
+        // Staged item with empty / blank extracted data (e.g. failed OCR)
+        $item = BulkImportItem::create([
+            'bulk_import_id' => $batch->id,
+            'workspace_id' => $ws['workspace']->id,
+            'user_id' => $ws['user']->id,
+            'client_item_id' => 'client_blank_1',
+            'sequence_order' => 1,
+            'status' => 'failed',
+            'front_image_path' => 'bulk_staging/blank_front.jpg',
+            'extracted_data' => [
+                'company' => '',
+                'name' => null,
+                'phone' => [],
+            ],
+            'decision' => 'create_new',
+        ]);
+
+        // Attempt to commit the blank item
+        $res = $this->withHeaders(['Authorization' => 'Bearer '.$ws['token']])
+            ->postJson("/api/bulk-imports/{$batch->batch_uuid}/commit", [
+                'items' => [
+                    ['id' => $item->id, 'decision' => 'create_new'],
+                ],
+            ]);
+        $res->assertStatus(200);
+
+        // Strict verification: NO new Card record created!
+        $this->assertEquals($initialCardCount, Card::where('workspace_id', $ws['workspace']->id)->count());
+
+        // Item status transitioned to skipped
+        $item->refresh();
+        $this->assertEquals('skipped', $item->status);
+        $this->assertNull($item->saved_card_id);
+
+        // Batch counter updated correctly
+        $batch->refresh();
+        $this->assertEquals(1, $batch->skipped_items);
+        $this->assertEquals(0, $batch->saved_items);
+    }
+
+    /**
+     * 11. Duplicate Auto-Link: Duplicate cards automatically link to existing contacts and do not create duplicate Cards.
+     */
+    public function test_duplicate_cards_automatically_link_to_existing_contact_without_creating_second_card(): void
+    {
+        Storage::fake('local');
+        $ws = $this->createWorkspaceUser('Duplicate Guard Test', 'dupguard@example.com', 'owner');
+        $ex = Exhibition::create([
+            'workspace_id' => $ws['workspace']->id,
+            'created_by_user_id' => $ws['user']->id,
+            'name' => 'Dup Test Expo',
+            'status' => 'active',
+        ]);
+
+        // Existing Card in workspace
+        $existingCard = Card::create([
+            'workspace_id' => $ws['workspace']->id,
+            'user_id' => $ws['user']->id,
+            'company' => 'Supreme Textiles',
+            'name' => 'Ramesh Kumar',
+            'phone' => ['9876500001'],
+            'image_path' => 'cards/original_supreme.jpg',
+        ]);
+
+        $batch = BulkImport::create([
+            'workspace_id' => $ws['workspace']->id,
+            'user_id' => $ws['user']->id,
+            'exhibition_id' => $ex->id,
+            'batch_uuid' => 'dup-guard-batch-uuid',
+            'status' => 'ready_for_review',
+        ]);
+
+        $frontFile = UploadedFile::fake()->image('dup_front.jpg');
+        $path = $frontFile->store('bulk_staging', 'local');
+
+        // New item that matches the existing phone
+        $item = BulkImportItem::create([
+            'bulk_import_id' => $batch->id,
+            'workspace_id' => $ws['workspace']->id,
+            'user_id' => $ws['user']->id,
+            'client_item_id' => 'client_dup_1',
+            'sequence_order' => 1,
+            'status' => 'duplicate_detected',
+            'front_image_path' => $path,
+            'matched_card_id' => $existingCard->id,
+            'extracted_data' => [
+                'company' => 'Supreme Textiles',
+                'name' => 'Ramesh Kumar',
+                'phone' => ['9876500001'],
+            ],
+            'decision' => 'link_existing',
+        ]);
+
+        // Commit item
+        $res = $this->withHeaders(['Authorization' => 'Bearer '.$ws['token']])
+            ->postJson("/api/bulk-imports/{$batch->batch_uuid}/commit", [
+                'items' => [
+                    ['id' => $item->id, 'decision' => 'link_existing'],
+                ],
+            ]);
+        $res->assertStatus(200);
+
+        // Strict verification: Exactly 1 Card exists in workspace!
+        $this->assertEquals(1, Card::where('workspace_id', $ws['workspace']->id)->count());
+
+        // CardScan is created and linked to the existing card
+        $item->refresh();
+        $this->assertEquals('saved', $item->status);
+        $this->assertEquals($existingCard->id, $item->saved_card_id);
+
+        $scan = CardScan::where('bulk_import_item_id', $item->id)->first();
+        $this->assertNotNull($scan);
+        $this->assertEquals($existingCard->id, $scan->card_id);
+
+        // Canonical Card image path was preserved
+        $existingCard->refresh();
+        $this->assertEquals('cards/original_supreme.jpg', $existingCard->image_path);
+    }
 }

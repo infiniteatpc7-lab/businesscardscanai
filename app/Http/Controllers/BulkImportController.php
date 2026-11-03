@@ -379,9 +379,23 @@ class BulkImportController extends Controller
         }
         if (isset($validated['extracted_data'])) {
             $item->extracted_data = array_merge($item->extracted_data ?? [], $validated['extracted_data']);
+
+            // If user manually enters details on a failed card, promote it to extracted
+            $hasContent = ! empty(trim((string) ($item->extracted_data['company'] ?? '')))
+                || ! empty(trim((string) ($item->extracted_data['company_english'] ?? '')))
+                || ! empty(trim((string) ($item->extracted_data['name'] ?? '')))
+                || ! empty(trim((string) ($item->extracted_data['name_english'] ?? '')))
+                || (! empty($item->extracted_data['phone']) && is_array($item->extracted_data['phone']) && count(array_filter($item->extracted_data['phone'])) > 0)
+                || (! empty($item->extracted_data['phone']) && is_string($item->extracted_data['phone']) && trim($item->extracted_data['phone']) !== '');
+
+            if ($item->status === 'failed' && $hasContent) {
+                $item->status = 'extracted';
+                $item->error_message = null;
+            }
         }
 
         $item->save();
+        $batch->recalculateCounters();
 
         return response()->json([
             'success' => true,

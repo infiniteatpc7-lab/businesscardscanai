@@ -109,6 +109,31 @@ class BulkCardSaveService
         // Merge extracted data with user edits
         $data = array_merge($stagedItem->extracted_data ?? [], $itemOverrides);
 
+        // Strict guard: DO NOT save blank or failed cards into directory!
+        // A card MUST contain at least a company name, contact person name, or phone number.
+        $hasContent = ! empty(trim((string) ($data['company'] ?? '')))
+            || ! empty(trim((string) ($data['company_english'] ?? '')))
+            || ! empty(trim((string) ($data['name'] ?? '')))
+            || ! empty(trim((string) ($data['name_english'] ?? '')))
+            || (! empty($data['phone']) && is_array($data['phone']) && count(array_filter($data['phone'])) > 0)
+            || (! empty($data['phone']) && is_string($data['phone']) && trim($data['phone']) !== '');
+
+        if (! $hasContent) {
+            $stagedItem->update([
+                'status' => 'skipped',
+                'decision' => 'skip',
+                'error_message' => 'Skipped: Card has no extracted contact details.',
+            ]);
+            $batch->recalculateCounters();
+
+            return [
+                'success' => true,
+                'skipped' => true,
+                'item_id' => $stagedItem->id,
+                'message' => 'Skipped: Card has no contact details.',
+            ];
+        }
+
         $decision = $itemOverrides['decision'] ?? $stagedItem->decision ?? 'create_new';
         if (! in_array($decision, ['create_new', 'link_existing', 'skip'], true)) {
             $decision = 'create_new';
@@ -144,7 +169,12 @@ class BulkCardSaveService
                     // Phase 2: Live duplicate check inside serialized lock
                     $liveDup = $this->duplicateDetector->detectDuplicates($data, $workspaceId);
                     $targetCard = null;
-                    $isLinking = ($decision === 'link_existing');
+
+                    // If duplicate match exists, default to link_existing unless user explicitly forces new card
+                    $hasDup = ! empty($liveDup['has_duplicates']);
+                    $isDuplicate = $hasDup || $item->status === 'duplicate_detected';
+                    $userForcedNew = ($itemOverrides['force_duplicate'] ?? false) === true;
+                    $isLinking = ($decision === 'link_existing') || ($isDuplicate && ! $userForcedNew);
 
                     if ($isLinking) {
                         $matchedId = $itemOverrides['matched_card_id']
@@ -154,6 +184,12 @@ class BulkCardSaveService
                         if ($matchedId) {
                             $targetCard = Card::forWorkspace($workspaceId)->lockForUpdate()->find($matchedId);
                         }
+
+                        // Fallback to first matched candidate if ID wasn't directly found
+                        if (! $targetCard && ! empty($liveDup['matching_cards'])) {
+                            $fallbackId = $liveDup['matching_cards'][0]['id'];
+                            $targetCard = Card::forWorkspace($workspaceId)->lockForUpdate()->find($fallbackId);
+                        }
                     }
 
                     if ($targetCard) {
@@ -162,6 +198,23 @@ class BulkCardSaveService
                             $exhibitionId => ['created_at' => now()],
                         ]);
                     } else {
+                        // If it is a duplicate and user didn't force a separate card, do NOT create a second card!
+                        if ($isDuplicate && ! $userForcedNew) {
+                            $item->update([
+                                'status' => 'skipped',
+                                'decision' => 'skip',
+                                'error_message' => 'Skipped duplicate: Matching contact already exists.',
+                            ]);
+                            $batch->recalculateCounters();
+
+                            return [
+                                'success' => true,
+                                'skipped' => true,
+                                'item_id' => $item->id,
+                                'message' => 'Skipped duplicate card.',
+                            ];
+                        }
+
                         // Create brand-new canonical Card
                         $cardPayload = $data;
                         unset(
