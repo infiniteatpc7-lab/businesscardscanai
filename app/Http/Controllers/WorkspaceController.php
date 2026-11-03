@@ -198,7 +198,7 @@ class WorkspaceController extends Controller
         $invitation = $inviteData['invitation'];
         $plainToken = $inviteData['plainToken'];
 
-        $baseUrl = config('app.url', url('/'));
+        $baseUrl = $this->resolveBaseUrl($request);
         $acceptUrl = rtrim($baseUrl, '/').'/invitations/'.$plainToken;
 
         $emailSent = false;
@@ -287,7 +287,7 @@ class WorkspaceController extends Controller
             'expires_at' => now()->addDays(7),
         ]);
 
-        $baseUrl = config('app.url', url('/'));
+        $baseUrl = $this->resolveBaseUrl($request);
         $acceptUrl = rtrim($baseUrl, '/').'/invitations/'.$plainToken;
 
         $emailSent = false;
@@ -694,5 +694,29 @@ class WorkspaceController extends Controller
             'success' => true,
             'message' => 'Member removed from workspace successfully.',
         ]);
+    }
+
+    /**
+     * Dynamically resolve the application base URL using the active request host,
+     * request port, and substituting local LAN IP for localhost so physical phone devices
+     * on the same network can access the invitation links directly.
+     */
+    protected function resolveBaseUrl(Request $request): string
+    {
+        $scheme = $request->getScheme() ?: 'http';
+        $host = $request->getHost();
+        $port = $request->getPort();
+
+        // If request was initiated from localhost or loopback, substitute local LAN IP
+        if (in_array($host, ['localhost', '127.0.0.1', '::1', '0.0.0.0'], true) && ! app()->runningUnitTests()) {
+            $lanIp = gethostbyname(gethostname());
+            if ($lanIp && filter_var($lanIp, FILTER_VALIDATE_IP) && ! in_array($lanIp, ['127.0.0.1', '::1'], true)) {
+                $host = $lanIp;
+            }
+        }
+
+        $formattedPort = ($port && ! in_array($port, [80, 443], true)) ? ":{$port}" : '';
+
+        return "{$scheme}://{$host}{$formattedPort}";
     }
 }
