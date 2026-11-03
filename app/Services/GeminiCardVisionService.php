@@ -44,7 +44,7 @@ EOT;
 
     public function getModel(): string
     {
-        return config('services.gemini.model', 'gemini-2.5-flash');
+        return config('services.gemini.model', 'gemini-3.5-flash');
     }
 
     public function getApiKey(): string
@@ -73,13 +73,20 @@ EOT;
         $rawBytes = $disk->get($frontStoragePath);
         $finfo = finfo_open(FILEINFO_MIME_TYPE);
         $mimeType = finfo_buffer($finfo, $rawBytes) ?: 'image/jpeg';
-        finfo_close($finfo);
 
         $base64Data = base64_encode($rawBytes);
         $apiKey = $this->getApiKey();
-        $model = $this->getModel();
 
-        $endpoint = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent";
+        $modelsToTry = array_values(array_unique(array_filter([
+            $this->getModel(),
+            ...config('services.gemini.models', [
+                'gemini-3.5-flash',
+                'gemini-3.5-flash-lite',
+                'gemini-flash-lite-latest',
+                'gemini-3.8-flash',
+                'gemini-2.5-flash',
+            ]),
+        ])));
 
         $parts = [
             ['text' => $this->prompt],
@@ -96,7 +103,6 @@ EOT;
             $backBytes = $disk->get($backStoragePath);
             $finfoBack = finfo_open(FILEINFO_MIME_TYPE);
             $backMime = finfo_buffer($finfoBack, $backBytes) ?: 'image/jpeg';
-            finfo_close($finfoBack);
 
             $parts[] = [
                 'inline_data' => [
@@ -117,58 +123,74 @@ EOT;
         ];
 
         $jsonPayload = json_encode($payload);
+        $lastException = null;
 
-        $ch = curl_init($endpoint);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST => true,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'Content-Length: '.strlen($jsonPayload),
-                'x-goog-api-key: '.$apiKey,
-            ],
-            CURLOPT_POSTFIELDS => $jsonPayload,
-            CURLOPT_TIMEOUT => 45,
-            CURLOPT_CONNECTTIMEOUT => 15,
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_SSL_VERIFYHOST => 2,
-        ]);
+        foreach ($modelsToTry as $model) {
+            $endpoint = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent";
 
-        $rawResponse = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($ch);
-        curl_close($ch);
+            $ch = curl_init($endpoint);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST => true,
+                CURLOPT_HTTPHEADER => [
+                    'Content-Type: application/json',
+                    'Content-Length: '.strlen($jsonPayload),
+                    'x-goog-api-key: '.$apiKey,
+                ],
+                CURLOPT_POSTFIELDS => $jsonPayload,
+                CURLOPT_TIMEOUT => 45,
+                CURLOPT_CONNECTTIMEOUT => 15,
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2,
+            ]);
 
-        if ($curlError) {
-            throw new TransientGeminiException("Network cURL error: {$curlError}");
+            $rawResponse = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlError = curl_error($ch);
+
+            if ($curlError) {
+                $lastException = new TransientGeminiException("Network cURL error on model {$model}: {$curlError}");
+
+                continue;
+            }
+
+            // Handle HTTP Status classifications (Rate limits or server spikes: try next fallback model)
+            if (in_array($httpCode, [429, 500, 502, 503, 504], true)) {
+                $lastException = new TransientGeminiException("Gemini transient HTTP {$httpCode} on model {$model}: {$rawResponse}");
+
+                continue;
+            }
+
+            if ($httpCode !== 200) {
+                $decodedErr = json_decode($rawResponse, true);
+                $msg = $decodedErr['error']['message'] ?? $rawResponse;
+                $lastException = new PermanentExtractionException("Gemini permanent HTTP {$httpCode} on model {$model}: {$msg}");
+
+                continue;
+            }
+
+            $json = json_decode($rawResponse, true);
+            $text = $json['candidates'][0]['content']['parts'][0]['text'] ?? null;
+
+            if (! $text) {
+                $lastException = new PermanentExtractionException("Gemini returned empty candidate content on model {$model}.");
+
+                continue;
+            }
+
+            $cleanText = preg_replace('/^```(?:json)?\s*/i', '', trim($text));
+            $cleanText = preg_replace('/\s*```$/i', '', $cleanText);
+            $parsed = json_decode($cleanText, true);
+
+            if (! is_array($parsed)) {
+                $lastException = new PermanentExtractionException("Unable to parse JSON from Gemini response on model {$model}: ".substr($cleanText, 0, 100));
+
+                continue;
+            }
+
+            return $parsed;
         }
 
-        // Handle HTTP Status classifications
-        if (in_array($httpCode, [429, 500, 502, 503, 504], true)) {
-            throw new TransientGeminiException("Gemini transient HTTP {$httpCode}: {$rawResponse}");
-        }
-
-        if ($httpCode !== 200) {
-            $decodedErr = json_decode($rawResponse, true);
-            $msg = $decodedErr['error']['message'] ?? $rawResponse;
-            throw new PermanentExtractionException("Gemini permanent HTTP {$httpCode}: {$msg}");
-        }
-
-        $json = json_decode($rawResponse, true);
-        $text = $json['candidates'][0]['content']['parts'][0]['text'] ?? null;
-
-        if (! $text) {
-            throw new PermanentExtractionException('Gemini returned empty candidate content.');
-        }
-
-        $cleanText = preg_replace('/^```(?:json)?\s*/i', '', trim($text));
-        $cleanText = preg_replace('/\s*```$/i', '', $cleanText);
-        $parsed = json_decode($cleanText, true);
-
-        if (! is_array($parsed)) {
-            throw new PermanentExtractionException('Unable to parse JSON from Gemini response: '.substr($cleanText, 0, 100));
-        }
-
-        return $parsed;
+        throw $lastException ?? new TransientGeminiException('Gemini extraction failed across all configured models.');
     }
 }

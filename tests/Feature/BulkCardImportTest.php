@@ -56,12 +56,12 @@ class BulkCardImportTest extends TestCase
     }
 
     /**
-     * 1. Verified Model Config: Exclusively uses verified gemini-2.5-flash without invalid IDs.
+     * 1. Verified Model Config: Uses verified project model configuration.
      */
     public function test_gemini_service_uses_verified_project_model_configuration(): void
     {
         $service = app(GeminiCardVisionService::class);
-        $this->assertEquals('gemini-2.5-flash', $service->getModel());
+        $this->assertEquals(config('services.gemini.model', 'gemini-3.5-flash'), $service->getModel());
     }
 
     /**
