@@ -415,7 +415,7 @@ export default function BulkImportView({
                                 ref={fileInputRef}
                                 type="file"
                                 multiple
-                                accept="image/jpeg,image/png,image/webp"
+                                accept="image/*"
                                 className="hidden"
                                 onChange={handlePhotosSelected}
                             />
@@ -470,7 +470,7 @@ export default function BulkImportView({
                                             <label className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-white/90 text-zinc-900 text-[8px] font-bold cursor-pointer hover:bg-white flex items-center gap-0.5">
                                                 <input
                                                     type="file"
-                                                    accept="image/jpeg,image/png,image/webp"
+                                                    accept="image/*"
                                                     className="hidden"
                                                     onChange={(e) => handleAttachBackPhoto(photo.clientItemId, e)}
                                                 />

@@ -119,7 +119,7 @@ export default function CardUploadDropzone({
             <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/jpeg,image/png,image/webp,image/jpg"
+                accept="image/*"
                 onChange={handleInput}
                 className="hidden"
             />

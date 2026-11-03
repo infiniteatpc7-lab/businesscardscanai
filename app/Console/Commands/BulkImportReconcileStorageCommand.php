@@ -26,3 +26,4 @@ class BulkImportReconcileStorageCommand extends Command
         return self::SUCCESS;
     }
 }
+

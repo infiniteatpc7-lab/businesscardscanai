@@ -57,3 +57,4 @@ class BulkImportPruneStagingCommand extends Command
         return self::SUCCESS;
     }
 }
+
