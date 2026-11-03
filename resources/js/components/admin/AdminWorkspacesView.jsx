@@ -200,6 +200,7 @@ export default function AdminWorkspacesView() {
                             <tr className="border-b border-slate-200/80 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-900/90 text-[11px] font-semibold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
                                 <th className="py-3 px-4">Workspace</th>
                                 <th className="py-3 px-4">Owner</th>
+                                <th className="py-3 px-4">Plan</th>
                                 <th className="py-3 px-4 text-center">Members</th>
                                 <th className="py-3 px-4 text-center">Cards</th>
                                 <th className="py-3 px-4 text-center">Events</th>
@@ -210,14 +211,14 @@ export default function AdminWorkspacesView() {
                         <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/80 text-xs text-slate-700 dark:text-zinc-300">
                             {isLoading ? (
                                 <tr>
-                                    <td colSpan="7" className="py-12 text-center text-slate-400 dark:text-zinc-500">
+                                    <td colSpan="8" className="py-12 text-center text-slate-400 dark:text-zinc-500">
                                         <Loader2 className="w-5 h-5 animate-spin mx-auto text-orange-500 mb-2" />
                                         Loading workspaces...
                                     </td>
                                 </tr>
                             ) : workspaces.length === 0 ? (
                                 <tr>
-                                    <td colSpan="7" className="py-12 text-center text-slate-400 dark:text-zinc-500">
+                                    <td colSpan="8" className="py-12 text-center text-slate-400 dark:text-zinc-500">
                                         <Building2 className="w-8 h-8 text-slate-300 dark:text-zinc-700 mx-auto mb-2" />
                                         No workspaces found matching your query.
                                     </td>
@@ -247,6 +248,11 @@ export default function AdminWorkspacesView() {
                                                 ) : (
                                                     <span className="text-slate-400 dark:text-zinc-500 italic text-[11px]">None</span>
                                                 )}
+                                            </td>
+                                            <td className="py-3 px-4">
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
+                                                    {ws.plan?.name || 'Free Tier'}
+                                                </span>
                                             </td>
                                             <td className="py-3 px-4 text-center font-bold text-slate-900 dark:text-white">
                                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 text-[11px]">
@@ -413,6 +419,12 @@ export default function AdminWorkspacesView() {
                     setSuspendReason('');
                 }}
                 onActivateClick={(ws) => handleConfirmActivate(ws)}
+                onPlanChanged={() => {
+                    loadWorkspaces(pagination.current_page);
+                    if (selectedWorkspace) {
+                        handleOpenWorkspaceDetails(selectedWorkspace.id);
+                    }
+                }}
             />
         </div>
     );

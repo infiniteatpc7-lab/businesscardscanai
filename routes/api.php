@@ -3,11 +3,13 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BulkImportController;
 use App\Http\Controllers\CardController;
+use App\Http\Controllers\CustomerSubscriptionController;
 use App\Http\Controllers\ExhibitionController;
 use App\Http\Controllers\PlatformAdmin\AdminAuditLogController;
 use App\Http\Controllers\PlatformAdmin\AdminAuthController;
 use App\Http\Controllers\PlatformAdmin\AdminCustomerController;
 use App\Http\Controllers\PlatformAdmin\AdminDashboardController;
+use App\Http\Controllers\PlatformAdmin\AdminPlanController;
 use App\Http\Controllers\PlatformAdmin\AdminWorkspaceController;
 use App\Http\Controllers\WorkspaceController;
 use Illuminate\Support\Facades\Route;
@@ -78,6 +80,9 @@ Route::middleware('api.auth')->group(function () {
     Route::post('/bulk-imports/{uuid}/items/{itemId}/retry', [BulkImportController::class, 'retryItem']);
     Route::post('/bulk-imports/{uuid}/commit', [BulkImportController::class, 'commit']);
     Route::post('/bulk-imports/{uuid}/cancel', [BulkImportController::class, 'cancel']);
+
+    // Workspace Subscription & Scan Quota Status (Read-only foundation)
+    Route::get('/subscription/current', [CustomerSubscriptionController::class, 'current']);
 });
 
 // ==========================================
@@ -104,8 +109,16 @@ Route::prefix('platform-admin')->group(function () {
         // Workspace Management
         Route::get('/workspaces', [AdminWorkspaceController::class, 'index']);
         Route::get('/workspaces/{id}', [AdminWorkspaceController::class, 'show']);
+        Route::get('/workspaces/{id}/subscription', [AdminWorkspaceController::class, 'subscription']);
+        Route::post('/workspaces/{id}/change-plan', [AdminWorkspaceController::class, 'changePlan']);
         Route::post('/workspaces/{id}/suspend', [AdminWorkspaceController::class, 'suspend']);
         Route::post('/workspaces/{id}/activate', [AdminWorkspaceController::class, 'activate']);
+
+        // SaaS Plans Management
+        Route::get('/plans', [AdminPlanController::class, 'index']);
+        Route::post('/plans', [AdminPlanController::class, 'store']);
+        Route::put('/plans/{id}', [AdminPlanController::class, 'update']);
+        Route::post('/plans/{id}/toggle-status', [AdminPlanController::class, 'toggleStatus']);
 
         // Audit Logs
         Route::get('/audit-logs', [AdminAuditLogController::class, 'index']);

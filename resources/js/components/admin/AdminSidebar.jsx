@@ -3,6 +3,7 @@ import {
     LayoutDashboard,
     Users,
     Building2,
+    CreditCard,
     FileText,
     LogOut,
     ExternalLink,
@@ -32,6 +33,7 @@ export default function AdminSidebar({
             items: [
                 { id: 'customers', label: 'Customers', icon: Users, badge: null },
                 { id: 'workspaces', label: 'Workspaces', icon: Building2, badge: null },
+                { id: 'plans', label: 'Plans & Pricing', icon: CreditCard, badge: null },
             ],
         },
         {

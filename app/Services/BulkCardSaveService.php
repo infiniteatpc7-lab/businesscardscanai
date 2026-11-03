@@ -7,15 +7,18 @@ use App\Models\BulkImportItem;
 use App\Models\Card;
 use App\Models\CardScan;
 use App\Models\User;
+use App\Models\Workspace;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class BulkCardSaveService
 {
     public function __construct(
         protected CardDuplicateDetector $duplicateDetector,
-        protected CardImageService $imageService
+        protected CardImageService $imageService,
+        protected ScanQuotaService $quotaService
     ) {}
 
     /**
@@ -155,128 +158,142 @@ class BulkCardSaveService
                 $stagedItem->front_image_path,
                 $stagedItem->back_image_path,
                 function (string $permanentFront, ?string $permanentBack) use ($stagedItem, $data, $workspaceId, $batch, $exhibitionId, $decision, $itemOverrides, $actor) {
-                    // Lock item inside transaction and verify not already saved
-                    $item = BulkImportItem::where('id', $stagedItem->id)->lockForUpdate()->firstOrFail();
-                    if ($item->status === 'saved' && $item->saved_scan_id) {
-                        return [
-                            'success' => true,
-                            'already_saved' => true,
-                            'card_id' => $item->saved_card_id,
-                            'scan_id' => $item->saved_scan_id,
-                        ];
-                    }
-
-                    // Phase 2: Live duplicate check inside serialized lock
-                    $liveDup = $this->duplicateDetector->detectDuplicates($data, $workspaceId);
-                    $targetCard = null;
-
-                    // If duplicate match exists, default to link_existing unless user explicitly forces new card
-                    $hasDup = ! empty($liveDup['has_duplicates']);
-                    $isDuplicate = $hasDup || $item->status === 'duplicate_detected';
-                    $userForcedNew = ($itemOverrides['force_duplicate'] ?? false) === true;
-                    $isLinking = ($decision === 'link_existing') || ($isDuplicate && ! $userForcedNew);
-
-                    if ($isLinking) {
-                        $matchedId = $itemOverrides['matched_card_id']
-                            ?? $item->matched_card_id
-                            ?? ($liveDup['matching_cards'][0]['id'] ?? null);
-
-                        if ($matchedId) {
-                            $targetCard = Card::forWorkspace($workspaceId)->lockForUpdate()->find($matchedId);
-                        }
-
-                        // Fallback to first matched candidate if ID wasn't directly found
-                        if (! $targetCard && ! empty($liveDup['matching_cards'])) {
-                            $fallbackId = $liveDup['matching_cards'][0]['id'];
-                            $targetCard = Card::forWorkspace($workspaceId)->lockForUpdate()->find($fallbackId);
-                        }
-                    }
-
-                    if ($targetCard) {
-                        // PRESERVE CANONICAL CARD IMAGE PATHS: Do NOT overwrite targetCard->image_path
-                        $targetCard->exhibitions()->syncWithoutDetaching([
-                            $exhibitionId => ['created_at' => now()],
-                        ]);
-                    } else {
-                        // If it is a duplicate and user didn't force a separate card, do NOT create a second card!
-                        if ($isDuplicate && ! $userForcedNew) {
-                            $item->update([
-                                'status' => 'skipped',
-                                'decision' => 'skip',
-                                'error_message' => 'Skipped duplicate: Matching contact already exists.',
-                            ]);
-                            $batch->recalculateCounters();
-
+                    return DB::transaction(function () use ($stagedItem, $data, $workspaceId, $batch, $exhibitionId, $decision, $itemOverrides, $actor, $permanentFront, $permanentBack) {
+                        // Lock item inside transaction and verify not already saved
+                        $item = BulkImportItem::where('id', $stagedItem->id)->lockForUpdate()->firstOrFail();
+                        if ($item->status === 'saved' && $item->saved_scan_id) {
                             return [
                                 'success' => true,
-                                'skipped' => true,
-                                'item_id' => $item->id,
-                                'message' => 'Skipped duplicate card.',
+                                'already_saved' => true,
+                                'card_id' => $item->saved_card_id,
+                                'scan_id' => $item->saved_scan_id,
                             ];
                         }
 
-                        // Create brand-new canonical Card
-                        $cardPayload = $data;
-                        unset(
-                            $cardPayload['decision'],
-                            $cardPayload['matched_card_id'],
-                            $cardPayload['scan_notes'],
-                            $cardPayload['force_duplicate']
+                        // Phase 2: Live duplicate check inside serialized lock
+                        $liveDup = $this->duplicateDetector->detectDuplicates($data, $workspaceId);
+                        $targetCard = null;
+
+                        // If duplicate match exists, default to link_existing unless user explicitly forces new card
+                        $hasDup = ! empty($liveDup['has_duplicates']);
+                        $isDuplicate = $hasDup || $item->status === 'duplicate_detected';
+                        $userForcedNew = ($itemOverrides['force_duplicate'] ?? false) === true;
+                        $isLinking = ($decision === 'link_existing') || ($isDuplicate && ! $userForcedNew);
+
+                        if ($isLinking) {
+                            $matchedId = $itemOverrides['matched_card_id']
+                                ?? $item->matched_card_id
+                                ?? ($liveDup['matching_cards'][0]['id'] ?? null);
+
+                            if ($matchedId) {
+                                $targetCard = Card::forWorkspace($workspaceId)->lockForUpdate()->find($matchedId);
+                            }
+
+                            // Fallback to first matched candidate if ID wasn't directly found
+                            if (! $targetCard && ! empty($liveDup['matching_cards'])) {
+                                $fallbackId = $liveDup['matching_cards'][0]['id'];
+                                $targetCard = Card::forWorkspace($workspaceId)->lockForUpdate()->find($fallbackId);
+                            }
+                        }
+
+                        if ($targetCard) {
+                            // PRESERVE CANONICAL CARD IMAGE PATHS: Do NOT overwrite targetCard->image_path
+                            $targetCard->exhibitions()->syncWithoutDetaching([
+                                $exhibitionId => ['created_at' => now()],
+                            ]);
+                        } else {
+                            // If it is a duplicate and user didn't force a separate card, do NOT create a second card!
+                            if ($isDuplicate && ! $userForcedNew) {
+                                $item->update([
+                                    'status' => 'skipped',
+                                    'decision' => 'skip',
+                                    'error_message' => 'Skipped duplicate: Matching contact already exists.',
+                                ]);
+                                $batch->recalculateCounters();
+
+                                return [
+                                    'success' => true,
+                                    'skipped' => true,
+                                    'item_id' => $item->id,
+                                    'message' => 'Skipped duplicate card.',
+                                ];
+                            }
+
+                            // Create brand-new canonical Card
+                            $cardPayload = $data;
+                            unset(
+                                $cardPayload['decision'],
+                                $cardPayload['matched_card_id'],
+                                $cardPayload['scan_notes'],
+                                $cardPayload['force_duplicate']
+                            );
+
+                            $cardPayload['workspace_id'] = $workspaceId;
+                            $cardPayload['user_id'] = $item->user_id; // Attributed to original scanner
+                            $cardPayload['image_path'] = $permanentFront;
+                            $cardPayload['back_image_path'] = $permanentBack;
+
+                            $targetCard = Card::create($cardPayload);
+                            $targetCard->exhibitions()->syncWithoutDetaching([
+                                $exhibitionId => ['created_at' => now()],
+                            ]);
+                        }
+
+                        // Insert genuine individual CardScan record with unique idempotency constraints
+                        $scanKey = "bulk_item_{$item->id}_ws_{$workspaceId}";
+                        try {
+                            $scan = CardScan::create([
+                                'workspace_id' => $workspaceId,
+                                'card_id' => $targetCard->id,
+                                'exhibition_id' => $exhibitionId,
+                                'user_id' => $item->user_id, // PRESERVES ORIGINAL SCANNER ATTRIBUTION
+                                'saved_by_user_id' => $actor->id, // AUDIT OF WHO COMMITTED
+                                'bulk_import_item_id' => $item->id,
+                                'scan_idempotency_key' => $scanKey,
+                                'scanned_at' => now(),
+                                'front_image_path' => $permanentFront,
+                                'back_image_path' => $permanentBack,
+                                'accuracy_score' => $item->accuracy_score ?? 90,
+                                'notes' => $itemOverrides['scan_notes'] ?? null,
+                            ]);
+                        } catch (QueryException $qe) {
+                            if ($qe->getCode() == 23000 || str_contains($qe->getMessage(), 'uq_card_scans')) {
+                                $scan = CardScan::where('scan_idempotency_key', $scanKey)->firstOrFail();
+                            } else {
+                                throw $qe;
+                            }
+                        }
+
+                        // Deduct scan credit idempotently at the transaction boundary
+                        $workspace = $batch->workspace ?? Workspace::findOrFail($workspaceId);
+                        $this->quotaService->recordSuccessfulScan(
+                            $workspace,
+                            $actor,
+                            $isLinking ? 'link_existing_contact' : 'bulk_import_item',
+                            $scanKey,
+                            $targetCard->id,
+                            $scan->id,
+                            $item->id
                         );
 
-                        $cardPayload['workspace_id'] = $workspaceId;
-                        $cardPayload['user_id'] = $item->user_id; // Attributed to original scanner
-                        $cardPayload['image_path'] = $permanentFront;
-                        $cardPayload['back_image_path'] = $permanentBack;
-
-                        $targetCard = Card::create($cardPayload);
-                        $targetCard->exhibitions()->syncWithoutDetaching([
-                            $exhibitionId => ['created_at' => now()],
+                        // Update item state
+                        $item->update([
+                            'status' => 'saved',
+                            'decision' => $isLinking ? 'link_existing' : 'create_new',
+                            'saved_card_id' => $targetCard->id,
+                            'saved_scan_id' => $scan->id,
+                            'saved_at' => now(),
                         ]);
-                    }
 
-                    // Insert genuine individual CardScan record with unique idempotency constraints
-                    $scanKey = "bulk_item_{$item->id}_ws_{$workspaceId}";
-                    try {
-                        $scan = CardScan::create([
-                            'workspace_id' => $workspaceId,
+                        $batch->recalculateCounters();
+
+                        return [
+                            'success' => true,
                             'card_id' => $targetCard->id,
-                            'exhibition_id' => $exhibitionId,
-                            'user_id' => $item->user_id, // PRESERVES ORIGINAL SCANNER ATTRIBUTION
-                            'saved_by_user_id' => $actor->id, // AUDIT OF WHO COMMITTED
-                            'bulk_import_item_id' => $item->id,
-                            'scan_idempotency_key' => $scanKey,
-                            'scanned_at' => now(),
-                            'front_image_path' => $permanentFront,
-                            'back_image_path' => $permanentBack,
-                            'accuracy_score' => $item->accuracy_score ?? 90,
-                            'notes' => $itemOverrides['scan_notes'] ?? null,
-                        ]);
-                    } catch (QueryException $qe) {
-                        if ($qe->getCode() == 23000 || str_contains($qe->getMessage(), 'uq_card_scans')) {
-                            $scan = CardScan::where('scan_idempotency_key', $scanKey)->firstOrFail();
-                        } else {
-                            throw $qe;
-                        }
-                    }
-
-                    // Update item state
-                    $item->update([
-                        'status' => 'saved',
-                        'decision' => $isLinking ? 'link_existing' : 'create_new',
-                        'saved_card_id' => $targetCard->id,
-                        'saved_scan_id' => $scan->id,
-                        'saved_at' => now(),
-                    ]);
-
-                    $batch->recalculateCounters();
-
-                    return [
-                        'success' => true,
-                        'card_id' => $targetCard->id,
-                        'scan_id' => $scan->id,
-                        'linked_existing' => (bool) $isLinking,
-                    ];
+                            'scan_id' => $scan->id,
+                            'linked_existing' => (bool) $isLinking,
+                        ];
+                    });
                 }
             );
         });

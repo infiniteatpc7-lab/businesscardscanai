@@ -151,3 +151,39 @@ export async function fetchAdminAuditLogs({ page = 1, perPage = 25, search = '',
     return adminFetch(`/api/platform-admin/audit-logs?${params.toString()}`);
 }
 
+export async function fetchAdminPlans() {
+    return adminFetch('/api/platform-admin/plans');
+}
+
+export async function createAdminPlan(payload) {
+    return adminFetch('/api/platform-admin/plans', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function updateAdminPlan(id, payload) {
+    return adminFetch(`/api/platform-admin/plans/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function toggleAdminPlanStatus(id) {
+    return adminFetch(`/api/platform-admin/plans/${id}/toggle-status`, {
+        method: 'POST',
+    });
+}
+
+export async function fetchWorkspaceSubscription(workspaceId) {
+    return adminFetch(`/api/platform-admin/workspaces/${workspaceId}/subscription`);
+}
+
+export async function changeWorkspacePlan(workspaceId, planId, reason = '') {
+    return adminFetch(`/api/platform-admin/workspaces/${workspaceId}/change-plan`, {
+        method: 'POST',
+        body: JSON.stringify({ plan_id: planId, reason }),
+    });
+}
+
+

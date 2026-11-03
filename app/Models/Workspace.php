@@ -73,6 +73,87 @@ class Workspace extends Model
     }
 
     /**
+     * Boot model events for Workspace.
+     */
+    protected static function booted(): void
+    {
+        static::created(function (Workspace $workspace) {
+            $defaultPlan = Plan::getDefaultPlan();
+            if ($defaultPlan) {
+                $now = now();
+                WorkspaceSubscription::firstOrCreate(
+                    [
+                        'workspace_id' => $workspace->id,
+                        'status' => 'active',
+                    ],
+                    [
+                        'plan_id' => $defaultPlan->id,
+                        'started_at' => $now,
+                        'current_period_starts_at' => $now,
+                        'current_period_ends_at' => $now->copy()->addMonth(),
+                        'assignment_source' => 'system_free',
+                    ]
+                );
+            }
+        });
+    }
+
+    /**
+     * Get all subscriptions for this workspace.
+     */
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(WorkspaceSubscription::class);
+    }
+
+    /**
+     * Get the active subscription for this workspace, auto-assigning Free Plan if missing.
+     */
+    public function activeSubscription(): WorkspaceSubscription
+    {
+        $subscription = $this->subscriptions()
+            ->with('plan')
+            ->where('status', 'active')
+            ->latest('id')
+            ->first();
+
+        if (! $subscription) {
+            $plan = Plan::getDefaultPlan();
+            $now = now();
+            $subscription = WorkspaceSubscription::create([
+                'workspace_id' => $this->id,
+                'plan_id' => $plan ? $plan->id : 1,
+                'status' => 'active',
+                'started_at' => $now,
+                'current_period_starts_at' => $now,
+                'current_period_ends_at' => $now->copy()->addMonth(),
+                'assignment_source' => 'system_free',
+            ]);
+            $subscription->load('plan');
+        }
+
+        $subscription->ensureCurrentPeriod();
+
+        return $subscription;
+    }
+
+    /**
+     * Get the currently assigned Plan for this workspace.
+     */
+    public function currentPlan(): Plan
+    {
+        return $this->activeSubscription()->plan;
+    }
+
+    /**
+     * Get all scan usage ledger entries for this workspace.
+     */
+    public function scanUsageLedger(): HasMany
+    {
+        return $this->hasMany(ScanUsageLedger::class);
+    }
+
+    /**
      * Get all business cards stored in this workspace.
      */
     public function cards(): HasMany

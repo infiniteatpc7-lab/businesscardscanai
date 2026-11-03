@@ -3,11 +3,15 @@
 namespace App\Http\Controllers\PlatformAdmin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Plan;
 use App\Models\PlatformAdmin;
 use App\Models\PlatformAuditLog;
+use App\Models\ScanUsageLedger;
 use App\Models\Workspace;
+use App\Services\ScanQuotaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class AdminWorkspaceController extends Controller
 {
@@ -18,6 +22,9 @@ class AdminWorkspaceController extends Controller
     {
         $query = Workspace::query()->with([
             'owner:id,name,email,status',
+            'subscriptions' => function ($sq) {
+                $sq->where('status', 'active')->with('plan');
+            },
         ])->withCount(['users', 'cards', 'exhibitions']);
 
         if ($status = $request->input('status')) {
@@ -56,6 +63,11 @@ class AdminWorkspaceController extends Controller
             'members_count' => $ws->users_count,
             'cards_count' => $ws->cards_count,
             'exhibitions_count' => $ws->exhibitions_count,
+            'plan' => $ws->currentPlan() ? [
+                'id' => $ws->currentPlan()->id,
+                'name' => $ws->currentPlan()->name,
+                'allowance' => (int) $ws->currentPlan()->monthly_scan_allowance,
+            ] : null,
             'created_at' => $ws->created_at?->toIso8601String(),
         ]);
 
@@ -85,6 +97,10 @@ class AdminWorkspaceController extends Controller
             'exhibitions:id,workspace_id,name,status,start_date,end_date',
         ])->withCount(['cards'])->findOrFail($id);
 
+        $subscription = $workspace->activeSubscription();
+        $subscription->ensureCurrentPeriod();
+        $plan = $subscription->plan;
+
         return response()->json([
             'success' => true,
             'workspace' => [
@@ -96,6 +112,21 @@ class AdminWorkspaceController extends Controller
                 'suspension_reason' => $workspace->suspension_reason,
                 'owner' => $workspace->owner,
                 'cards_count' => $workspace->cards_count,
+                'subscription' => [
+                    'id' => $subscription->id,
+                    'status' => $subscription->status,
+                    'assignment_source' => $subscription->assignment_source,
+                    'starts_at' => $subscription->starts_at?->toIso8601String(),
+                    'renews_at' => $subscription->renews_at?->toIso8601String(),
+                ],
+                'plan' => [
+                    'id' => $plan->id,
+                    'name' => $plan->name,
+                    'slug' => $plan->slug,
+                    'price' => (float) $plan->price,
+                    'currency' => $plan->currency,
+                    'monthly_scan_allowance' => (int) $plan->monthly_scan_allowance,
+                ],
                 'members' => $workspace->users->map(fn ($u) => [
                     'id' => $u->id,
                     'name' => $u->name,
@@ -177,6 +208,89 @@ class AdminWorkspaceController extends Controller
             'success' => true,
             'message' => 'Workspace has been reactivated successfully.',
             'workspace' => $workspace,
+        ]);
+    }
+
+    /**
+     * View workspace subscription details and scan usage ledger.
+     */
+    public function subscription(int $id, ScanQuotaService $quotaService): JsonResponse
+    {
+        $workspace = Workspace::findOrFail($id);
+        $subscription = $workspace->activeSubscription();
+        $subscription->ensureCurrentPeriod();
+        $plan = $subscription->plan;
+        $quota = $quotaService->getWorkspaceQuota($workspace);
+
+        $recentLedger = ScanUsageLedger::where('workspace_id', $workspace->id)
+            ->with(['user:id,name,email'])
+            ->latest('id')
+            ->limit(25)
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'workspace' => [
+                'id' => $workspace->id,
+                'name' => $workspace->name,
+            ],
+            'subscription' => $subscription,
+            'plan' => $plan,
+            'quota' => $quota,
+            'recent_ledger' => $recentLedger,
+        ]);
+    }
+
+    /**
+     * Manually change or assign a workspace plan.
+     */
+    public function changePlan(Request $request, int $id, ScanQuotaService $quotaService): JsonResponse
+    {
+        /** @var PlatformAdmin $admin */
+        $admin = $request->attributes->get('platform_admin');
+
+        $validated = $request->validate([
+            'plan_id' => 'required|integer|exists:plans,id',
+            'reason' => 'nullable|string|max:500',
+        ]);
+
+        $workspace = Workspace::findOrFail($id);
+        $newPlan = Plan::findOrFail($validated['plan_id']);
+
+        $subscription = DB::transaction(function () use ($workspace, $newPlan, $admin, $validated, $request) {
+            $currentSub = $workspace->activeSubscription();
+            $oldPlanName = $currentSub->plan?->name ?? 'None';
+
+            $currentSub->update([
+                'plan_id' => $newPlan->id,
+                'assignment_source' => 'admin_assigned',
+                'status' => 'active',
+            ]);
+
+            PlatformAuditLog::record(
+                $admin,
+                'workspace.plan_change',
+                $workspace,
+                [
+                    'workspace_name' => $workspace->name,
+                    'old_plan' => $oldPlanName,
+                    'new_plan' => $newPlan->name,
+                    'reason' => $validated['reason'] ?? null,
+                ],
+                $request
+            );
+
+            return $currentSub->fresh(['plan']);
+        });
+
+        $quota = $quotaService->getWorkspaceQuota($workspace->fresh());
+
+        return response()->json([
+            'success' => true,
+            'message' => "Workspace plan changed to '{$newPlan->name}' successfully.",
+            'subscription' => $subscription,
+            'plan' => $subscription->plan,
+            'quota' => $quota,
         ]);
     }
 }

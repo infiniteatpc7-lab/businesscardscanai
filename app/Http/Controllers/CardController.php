@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\QuotaExceededException;
 use App\Models\Card;
 use App\Models\CardScan;
 use App\Models\Exhibition;
 use App\Models\UserSelectedExhibition;
 use App\Models\Workspace;
 use App\Services\CardDuplicateDetector;
+use App\Services\ScanQuotaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -156,7 +158,7 @@ class CardController extends Controller
      * Scan an uploaded card image using Gemini Multimodal Vision API.
      * Uses private storage, strict image validation, and secure header authentication.
      */
-    public function scan(Request $request): JsonResponse
+    public function scan(Request $request, ScanQuotaService $quotaService): JsonResponse
     {
         $validatedImage = $this->validateAndExtractImage($request);
 
@@ -167,8 +169,31 @@ class CardController extends Controller
             ], $validatedImage['status'] ?? 422);
         }
 
+        /** @var Workspace $workspace */
+        $workspace = $request->attributes->get('workspace');
+        $user = $request->user();
+
+        $scanIdempotencyKey = $request->header('X-Idempotency-Key')
+            ?? $request->input('scan_idempotency_key')
+            ?? ('scan_'.Str::uuid());
+
+        $storedPath = $validatedImage['storage_path'];
+
+        // Reserve scan quota before initiating billable Gemini multimodal extraction
+        try {
+            $quotaService->reserveQuota($workspace, $user, 'single_scan', $scanIdempotencyKey);
+        } catch (QuotaExceededException $qe) {
+            if ($storedPath) {
+                Storage::disk('local')->delete($storedPath);
+            }
+
+            return $qe->render($request);
+        }
+
         $apiKey = config('services.gemini.api_key');
         if (! $apiKey) {
+            $quotaService->releaseReservation($scanIdempotencyKey, 'gemini_api_key_missing');
+
             // Clean up stored image on configuration error
             if (! empty($validatedImage['storage_path'])) {
                 Storage::disk('local')->delete($validatedImage['storage_path']);
@@ -184,7 +209,6 @@ class CardController extends Controller
 
         $rawBytes = $validatedImage['raw_bytes'];
         $mimeType = $validatedImage['mime_type'];
-        $storedPath = $validatedImage['storage_path'];
 
         // Optimize image resolution if too large for OCR (e.g. mobile photos > 1800px)
         $optimized = $this->optimizeImageBytes($rawBytes, $mimeType);
@@ -252,6 +276,9 @@ EOT;
         }
 
         if (! $geminiResult || ! $geminiResult['success']) {
+            // Release held quota reservation upon extraction failure
+            $quotaService->releaseReservation($scanIdempotencyKey, 'gemini_extraction_failure');
+
             // Clean up stored images upon failed scan
             if ($storedPath) {
                 Storage::disk('local')->delete($storedPath);
@@ -273,6 +300,7 @@ EOT;
 
         $extractedData = $geminiResult['data'];
         $extractedData['image_path'] = $storedPath;
+        $extractedData['scan_idempotency_key'] = $scanIdempotencyKey;
         if ($storedBackPath) {
             $extractedData['back_image_path'] = $storedBackPath;
         }
@@ -542,7 +570,7 @@ EOT;
      * Store a scanned or edited card in the database with workspace-scoped duplicate detection,
      * atomic exhibition association, and individual scan history tracking.
      */
-    public function store(Request $request, CardDuplicateDetector $duplicateDetector): JsonResponse
+    public function store(Request $request, CardDuplicateDetector $duplicateDetector, ScanQuotaService $quotaService): JsonResponse
     {
         /** @var Workspace $workspace */
         $workspace = $request->attributes->get('workspace');
@@ -573,6 +601,7 @@ EOT;
             'exhibition_id' => 'nullable|integer',
             'link_existing_card_id' => 'nullable|integer',
             'scan_notes' => 'nullable|string|max:1000',
+            'scan_idempotency_key' => 'nullable|string|max:128',
         ]);
 
         // Resolve active target exhibition
@@ -588,25 +617,43 @@ EOT;
                 ], 404);
             }
 
-            DB::transaction(function () use ($existingCard, $exhibition, $workspace, $user, $validated) {
-                // Associate with exhibition
-                $existingCard->exhibitions()->syncWithoutDetaching([
-                    $exhibition->id => ['created_at' => now()],
-                ]);
+            $scanKey = $validated['scan_idempotency_key']
+                ?? $request->header('X-Idempotency-Key')
+                ?? ('link_scan_'.Str::uuid());
 
-                // Record fresh scan history
-                CardScan::create([
-                    'workspace_id' => $workspace->id,
-                    'card_id' => $existingCard->id,
-                    'exhibition_id' => $exhibition->id,
-                    'user_id' => $user->id,
-                    'scanned_at' => now(),
-                    'front_image_path' => $validated['image_path'] ?? $existingCard->image_path,
-                    'back_image_path' => $validated['back_image_path'] ?? $existingCard->back_image_path,
-                    'accuracy_score' => $validated['accuracy_score'] ?? 90,
-                    'notes' => $validated['scan_notes'] ?? null,
-                ]);
-            });
+            try {
+                DB::transaction(function () use ($existingCard, $exhibition, $workspace, $user, $validated, $quotaService, $scanKey) {
+                    // Associate with exhibition
+                    $existingCard->exhibitions()->syncWithoutDetaching([
+                        $exhibition->id => ['created_at' => now()],
+                    ]);
+
+                    // Record fresh scan history
+                    $scan = CardScan::create([
+                        'workspace_id' => $workspace->id,
+                        'card_id' => $existingCard->id,
+                        'exhibition_id' => $exhibition->id,
+                        'user_id' => $user->id,
+                        'scanned_at' => now(),
+                        'front_image_path' => $validated['image_path'] ?? $existingCard->image_path,
+                        'back_image_path' => $validated['back_image_path'] ?? $existingCard->back_image_path,
+                        'accuracy_score' => $validated['accuracy_score'] ?? 90,
+                        'notes' => $validated['scan_notes'] ?? null,
+                    ]);
+
+                    // Deduct or confirm scan credit for linking contact to new exhibition event
+                    $quotaService->recordSuccessfulScan(
+                        $workspace,
+                        $user,
+                        'link_existing_contact',
+                        $scanKey,
+                        $existingCard->id,
+                        $scan->id
+                    );
+                });
+            } catch (QuotaExceededException $qe) {
+                return $qe->render($request);
+            }
 
             $role = $request->attributes->get('workspace_role');
             if ($role === 'member') {
@@ -690,41 +737,60 @@ EOT;
             ]);
         }
 
-        // Case 2: Save new card + associate with exhibition + record scan event inside atomic transaction
-        $card = DB::transaction(function () use ($validated, $workspace, $user, $exhibition) {
-            $cardData = $validated;
-            unset(
-                $cardData['force_duplicate'],
-                $cardData['exhibition_id'],
-                $cardData['link_existing_card_id'],
-                $cardData['scan_notes']
-            );
+        $scanKey = $validated['scan_idempotency_key']
+            ?? $request->header('X-Idempotency-Key')
+            ?? ('card_scan_'.Str::uuid());
 
-            $cardData['workspace_id'] = $workspace->id;
-            $cardData['user_id'] = $user->id;
+        try {
+            // Case 2: Save new card + associate with exhibition + record scan event inside atomic transaction
+            $card = DB::transaction(function () use ($validated, $workspace, $user, $exhibition, $quotaService, $scanKey) {
+                $cardData = $validated;
+                unset(
+                    $cardData['force_duplicate'],
+                    $cardData['exhibition_id'],
+                    $cardData['link_existing_card_id'],
+                    $cardData['scan_notes'],
+                    $cardData['scan_idempotency_key']
+                );
 
-            $newCard = Card::create($cardData);
+                $cardData['workspace_id'] = $workspace->id;
+                $cardData['user_id'] = $user->id;
 
-            // Associate with exhibition
-            $newCard->exhibitions()->syncWithoutDetaching([
-                $exhibition->id => ['created_at' => now()],
-            ]);
+                $newCard = Card::create($cardData);
 
-            // Record atomic scan history
-            CardScan::create([
-                'workspace_id' => $workspace->id,
-                'card_id' => $newCard->id,
-                'exhibition_id' => $exhibition->id,
-                'user_id' => $user->id,
-                'scanned_at' => now(),
-                'front_image_path' => $cardData['image_path'] ?? null,
-                'back_image_path' => $cardData['back_image_path'] ?? null,
-                'accuracy_score' => $cardData['accuracy_score'] ?? 90,
-                'notes' => $validated['scan_notes'] ?? null,
-            ]);
+                // Associate with exhibition
+                $newCard->exhibitions()->syncWithoutDetaching([
+                    $exhibition->id => ['created_at' => now()],
+                ]);
 
-            return $newCard;
-        });
+                // Record atomic scan history
+                $scan = CardScan::create([
+                    'workspace_id' => $workspace->id,
+                    'card_id' => $newCard->id,
+                    'exhibition_id' => $exhibition->id,
+                    'user_id' => $user->id,
+                    'scanned_at' => now(),
+                    'front_image_path' => $cardData['image_path'] ?? null,
+                    'back_image_path' => $cardData['back_image_path'] ?? null,
+                    'accuracy_score' => $cardData['accuracy_score'] ?? 90,
+                    'notes' => $validated['scan_notes'] ?? null,
+                ]);
+
+                // Deduct or confirm scan credit atomically
+                $quotaService->recordSuccessfulScan(
+                    $workspace,
+                    $user,
+                    'single_scan',
+                    $scanKey,
+                    $newCard->id,
+                    $scan->id
+                );
+
+                return $newCard;
+            });
+        } catch (QuotaExceededException $qe) {
+            return $qe->render($request);
+        }
 
         $role = $request->attributes->get('workspace_role');
         if ($role === 'member') {

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     X,
     Building2,
@@ -11,19 +11,63 @@ import {
     UserX,
     UserCheck,
     Mail,
-    User
+    User,
+    Zap,
+    Loader2
 } from 'lucide-react';
+import { fetchAdminPlans, changeWorkspacePlan } from '../../services/platformAdminApi';
 
 export default function WorkspaceDetailDrawer({
     workspace,
     isOpen,
     onClose,
     onSuspendClick,
-    onActivateClick
+    onActivateClick,
+    onPlanChanged
 }) {
+    const [availablePlans, setAvailablePlans] = useState([]);
+    const [selectedPlanId, setSelectedPlanId] = useState('');
+    const [isChangingPlan, setIsChangingPlan] = useState(false);
+    const [planChangeMsg, setPlanChangeMsg] = useState(null);
+
+    useEffect(() => {
+        if (isOpen && workspace) {
+            setSelectedPlanId(workspace.plan?.id ? String(workspace.plan.id) : '');
+            setPlanChangeMsg(null);
+            fetchAdminPlans().then((res) => {
+                if (res.success && Array.isArray(res.plans)) {
+                    setAvailablePlans(res.plans);
+                    if (!workspace.plan?.id && res.plans.length > 0) {
+                        setSelectedPlanId(String(res.plans[0].id));
+                    }
+                }
+            });
+        }
+    }, [isOpen, workspace]);
+
     if (!isOpen || !workspace) return null;
 
     const isSuspended = workspace.status === 'suspended';
+
+    const handleSavePlanChange = async () => {
+        if (!selectedPlanId || Number(selectedPlanId) === workspace.plan?.id) return;
+        setIsChangingPlan(true);
+        setPlanChangeMsg(null);
+        try {
+            const res = await changeWorkspacePlan(workspace.id, Number(selectedPlanId), 'Admin updated plan');
+            if (res.success) {
+                setPlanChangeMsg({ type: 'success', text: res.message });
+                onPlanChanged?.();
+            } else {
+                setPlanChangeMsg({ type: 'error', text: res.message || 'Failed to change plan.' });
+            }
+        } catch (err) {
+            console.error('Plan change error:', err);
+            setPlanChangeMsg({ type: 'error', text: 'Network error occurred.' });
+        } finally {
+            setIsChangingPlan(false);
+        }
+    };
 
     return (
         <div className="fixed inset-0 z-50 overflow-hidden select-none transition-colors">
@@ -108,6 +152,65 @@ export default function WorkspaceDetailDrawer({
                             ) : (
                                 <p className="text-xs text-slate-400 dark:text-zinc-500 italic">No owner assigned</p>
                             )}
+                        </div>
+
+                        {/* Subscription & Quota Card */}
+                        <div className="bg-slate-50/70 dark:bg-zinc-950/60 rounded-xl p-3.5 border border-slate-200/80 dark:border-zinc-800 space-y-2.5">
+                            <div className="flex items-center justify-between">
+                                <h4 className="text-[11px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">
+                                    Subscription & Quota
+                                </h4>
+                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
+                                    {workspace.plan?.name || 'Free Tier'}
+                                </span>
+                            </div>
+
+                            <div className="flex items-center justify-between text-xs">
+                                <span className="text-slate-500 dark:text-zinc-400">Monthly Scan Allowance</span>
+                                <span className="font-semibold text-slate-900 dark:text-white">
+                                    {(workspace.plan?.monthly_scan_allowance ?? 50).toLocaleString()} credits / mo
+                                </span>
+                            </div>
+
+                            {/* Plan Change UI */}
+                            <div className="pt-2 border-t border-slate-200/70 dark:border-zinc-800/80">
+                                <label className="block text-[11px] font-semibold text-slate-600 dark:text-zinc-400 mb-1.5">
+                                    Assign Plan Manually
+                                </label>
+                                <div className="flex gap-2">
+                                    <select
+                                        value={selectedPlanId}
+                                        onChange={(e) => setSelectedPlanId(e.target.value)}
+                                        className="flex-1 text-xs rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-900 dark:text-white px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                                    >
+                                        {availablePlans.map((p) => (
+                                            <option key={p.id} value={p.id}>
+                                                {p.name} ({p.monthly_scan_allowance.toLocaleString()} scans - ${p.price}/mo)
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        type="button"
+                                        onClick={handleSavePlanChange}
+                                        disabled={isChangingPlan || Number(selectedPlanId) === workspace.plan?.id}
+                                        className="px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 active:bg-orange-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer shrink-0 inline-flex items-center gap-1"
+                                    >
+                                        {isChangingPlan ? (
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        ) : (
+                                            <Zap className="w-3.5 h-3.5" />
+                                        )}
+                                        Apply
+                                    </button>
+                                </div>
+                                {planChangeMsg && (
+                                    <p className={`text-[11px] mt-1.5 font-medium ${
+                                        planChangeMsg.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                                    }`}>
+                                        {planChangeMsg.text}
+                                    </p>
+                                )}
+                            </div>
                         </div>
 
                         {/* Metrics Grid */}

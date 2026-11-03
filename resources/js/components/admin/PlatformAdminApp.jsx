@@ -13,6 +13,7 @@ import AdminHeader from './AdminHeader';
 import AdminDashboardView from './AdminDashboardView';
 import AdminCustomersView from './AdminCustomersView';
 import AdminWorkspacesView from './AdminWorkspacesView';
+import AdminPlansView from './AdminPlansView';
 import AdminAuditLogsView from './AdminAuditLogsView';
 
 export default function PlatformAdminApp() {
@@ -190,6 +191,8 @@ export default function PlatformAdminApp() {
                     )}
 
                     {currentTab === 'workspaces' && <AdminWorkspacesView />}
+
+                    {currentTab === 'plans' && <AdminPlansView />}
 
                     {currentTab === 'audit' && <AdminAuditLogsView />}
                 </main>
