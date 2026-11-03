@@ -20,6 +20,9 @@ class CardScan extends Model
         'card_id',
         'exhibition_id',
         'user_id',
+        'saved_by_user_id',
+        'bulk_import_item_id',
+        'scan_idempotency_key',
         'scanned_at',
         'front_image_path',
         'back_image_path',
@@ -70,5 +73,21 @@ class CardScan extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Get the user who confirmed/committed the save (if different from scanner).
+     */
+    public function savedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'saved_by_user_id');
+    }
+
+    /**
+     * Get the staged bulk import item that generated this scan.
+     */
+    public function bulkImportItem(): BelongsTo
+    {
+        return $this->belongsTo(BulkImportItem::class);
     }
 }

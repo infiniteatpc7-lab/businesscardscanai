@@ -21,6 +21,7 @@ import {
 import CardUploadDropzone from '../components/scanner/CardUploadDropzone';
 import CardFormEditor from '../components/scanner/CardFormEditor';
 import DuplicateWarningModal from '../components/scanner/DuplicateWarningModal';
+import BulkImportView from '../components/scanner/BulkImportView';
 import { scanCard, saveCard, uploadCardImage } from '../services/cardApi';
 import { downloadVCard, openWhatsApp, isLandlineNumber, initiatePhoneCall } from '../services/vcfHelper';
 import { useImageProcessor } from '../hooks/useImageProcessor';
@@ -34,6 +35,8 @@ export default function MobileScannerView({
 }) {
     const { showToast } = useToast();
     const { compressImage } = useImageProcessor();
+
+    const [scanMode, setScanMode] = useState('single'); // 'single' | 'bulk'
 
     const [imageFile, setImageFile] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
@@ -244,29 +247,60 @@ export default function MobileScannerView({
     const isLandline = isLandlineNumber(primaryPhone);
 
     return (
-        <div className={`space-y-4 pb-24 ${!cardData ? 'flex-1 flex flex-col justify-center my-auto' : ''}`}>
-            {/* Active Exhibition Info Bar */}
-            {currentExhibition && (
-                <div className="flex items-center justify-between p-3 rounded-2xl bg-white border border-black/[0.05] shadow-xs">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="w-8 h-8 rounded-xl bg-indigo-50 border border-indigo-200/80 flex items-center justify-center text-indigo-600 shrink-0">
-                            <Calendar className="w-4 h-4" />
+        <div className={`space-y-4 pb-24 ${!cardData && scanMode === 'single' ? 'flex-1 flex flex-col justify-center my-auto' : ''}`}>
+            {/* Scan Mode Switcher (Single vs Bulk Import) */}
+            <div className="flex items-center p-1 bg-zinc-100 rounded-2xl">
+                <button
+                    type="button"
+                    onClick={() => setScanMode('single')}
+                    className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                        scanMode === 'single' ? 'bg-white text-zinc-950 shadow-xs' : 'text-zinc-500 hover:text-zinc-900'
+                    }`}
+                >
+                    Single Card
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setScanMode('bulk')}
+                    className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                        scanMode === 'bulk' ? 'bg-white text-zinc-950 shadow-xs' : 'text-zinc-500 hover:text-zinc-900'
+                    }`}
+                >
+                    Bulk Multiple Import
+                </button>
+            </div>
+
+            {scanMode === 'bulk' ? (
+                <BulkImportView
+                    currentExhibition={currentExhibition}
+                    onOpenExhibitionSelector={onOpenExhibitionSelector}
+                    onNavigateToCards={onNavigateToCards}
+                    onBatchSaved={() => onCardSaved?.(null)}
+                />
+            ) : (
+                <>
+                    {/* Active Exhibition Info Bar */}
+                    {currentExhibition && (
+                        <div className="flex items-center justify-between p-3 rounded-2xl bg-white border border-black/[0.05] shadow-xs">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                                <div className="w-8 h-8 rounded-xl bg-indigo-50 border border-indigo-200/80 flex items-center justify-center text-indigo-600 shrink-0">
+                                    <Calendar className="w-4 h-4" />
+                                </div>
+                                <div className="min-w-0">
+                                    <span className="text-[10px] uppercase font-bold text-zinc-400 block">Tagged Exhibition</span>
+                                    <span className="text-xs font-bold text-zinc-950 truncate block">{currentExhibition.name}</span>
+                                </div>
+                            </div>
+                            {onOpenExhibitionSelector && (
+                                <button
+                                    onClick={onOpenExhibitionSelector}
+                                    className="px-2.5 py-1 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[11px] font-bold active:scale-95 transition-all"
+                                >
+                                    Change
+                                </button>
+                            )}
                         </div>
-                        <div className="min-w-0">
-                            <span className="text-[10px] uppercase font-bold text-zinc-400 block">Tagged Exhibition</span>
-                            <span className="text-xs font-bold text-zinc-950 truncate block">{currentExhibition.name}</span>
-                        </div>
-                    </div>
-                    {onOpenExhibitionSelector && (
-                        <button
-                            onClick={onOpenExhibitionSelector}
-                            className="px-2.5 py-1 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[11px] font-bold active:scale-95 transition-all"
-                        >
-                            Change
-                        </button>
                     )}
-                </div>
-            )}
 
             {/* Capture Area */}
             <CardUploadDropzone
@@ -395,6 +429,8 @@ export default function MobileScannerView({
                         </button>
                     </div>
                 </div>
+            )}
+            </>
             )}
 
             {/* Duplicate Warning Modal */}

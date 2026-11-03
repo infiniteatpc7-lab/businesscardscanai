@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BulkImportController;
 use App\Http\Controllers\CardController;
 use App\Http\Controllers\ExhibitionController;
 use App\Http\Controllers\WorkspaceController;
@@ -54,4 +55,21 @@ Route::middleware('api.auth')->group(function () {
     Route::put('/cards/{id}', [CardController::class, 'update']);
     Route::delete('/cards/{id}', [CardController::class, 'destroy']);
     Route::get('/cards/{id}/image', [CardController::class, 'image']);
+});
+
+// Bulk Multiple Photo Import Routes
+Route::middleware('api.auth')->group(function () {
+    Route::get('/bulk-imports', [BulkImportController::class, 'index']);
+    Route::post('/bulk-imports', [BulkImportController::class, 'store']);
+    Route::get('/bulk-imports/{uuid}', [BulkImportController::class, 'show']);
+    Route::post('/bulk-imports/{uuid}/items', [BulkImportController::class, 'uploadItem'])->middleware('throttle:120,1');
+    Route::post('/bulk-imports/{uuid}/items/{itemId}/back-image', [BulkImportController::class, 'uploadItemBackImage'])->middleware('throttle:60,1');
+    Route::post('/bulk-imports/{uuid}/process', [BulkImportController::class, 'process']);
+    Route::get('/bulk-imports/{uuid}/progress', [BulkImportController::class, 'progress']);
+    Route::get('/bulk-imports/{uuid}/items', [BulkImportController::class, 'items']);
+    Route::get('/bulk-imports/{uuid}/items/{itemId}/image', [BulkImportController::class, 'image']);
+    Route::put('/bulk-imports/{uuid}/items/{itemId}', [BulkImportController::class, 'updateItem']);
+    Route::post('/bulk-imports/{uuid}/items/{itemId}/retry', [BulkImportController::class, 'retryItem']);
+    Route::post('/bulk-imports/{uuid}/commit', [BulkImportController::class, 'commit']);
+    Route::post('/bulk-imports/{uuid}/cancel', [BulkImportController::class, 'cancel']);
 });

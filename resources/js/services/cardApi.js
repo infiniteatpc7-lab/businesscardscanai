@@ -380,3 +380,110 @@ export async function logoutUser() {
         clearStoredToken();
     }
 }
+
+/**
+ * Bulk Multiple Photo Import API
+ */
+export async function createBulkImport({ exhibitionId, expectedCount = 10, clientBatchUuid = null }) {
+    const response = await authFetch('/api/bulk-imports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            exhibition_id: exhibitionId,
+            expected_count: expectedCount,
+            client_batch_uuid: clientBatchUuid,
+        }),
+    });
+    return response.json();
+}
+
+export async function fetchBulkImports() {
+    const response = await authFetch('/api/bulk-imports');
+    return response.json();
+}
+
+export async function fetchBulkImport(uuid) {
+    const response = await authFetch(`/api/bulk-imports/${uuid}`);
+    return response.json();
+}
+
+export async function uploadBulkItem(uuid, { clientItemId, sequenceOrder = 0, file, base64Url }) {
+    const formData = new FormData();
+    formData.append('client_item_id', clientItemId);
+    formData.append('sequence_order', String(sequenceOrder));
+    if (file) {
+        formData.append('image', file);
+    } else if (base64Url) {
+        formData.append('image_base64', base64Url);
+    }
+
+    const response = await authFetch(`/api/bulk-imports/${uuid}/items`, {
+        method: 'POST',
+        body: formData,
+    });
+    return response.json();
+}
+
+export async function uploadBulkItemBackImage(uuid, itemId, { file, base64Url }) {
+    const formData = new FormData();
+    if (file) {
+        formData.append('back_image', file);
+    } else if (base64Url) {
+        formData.append('back_image_base64', base64Url);
+    }
+
+    const response = await authFetch(`/api/bulk-imports/${uuid}/items/${itemId}/back-image`, {
+        method: 'POST',
+        body: formData,
+    });
+    return response.json();
+}
+
+export async function processBulkImport(uuid) {
+    const response = await authFetch(`/api/bulk-imports/${uuid}/process`, {
+        method: 'POST',
+    });
+    return response.json();
+}
+
+export async function fetchBulkProgress(uuid) {
+    const response = await authFetch(`/api/bulk-imports/${uuid}/progress`);
+    return response.json();
+}
+
+export async function fetchBulkItems(uuid, filter = 'all') {
+    const response = await authFetch(`/api/bulk-imports/${uuid}/items?filter=${filter}`);
+    return response.json();
+}
+
+export async function updateBulkItem(uuid, itemId, payload) {
+    const response = await authFetch(`/api/bulk-imports/${uuid}/items/${itemId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    return response.json();
+}
+
+export async function retryBulkItem(uuid, itemId) {
+    const response = await authFetch(`/api/bulk-imports/${uuid}/items/${itemId}/retry`, {
+        method: 'POST',
+    });
+    return response.json();
+}
+
+export async function commitBulkImport(uuid, items = []) {
+    const response = await authFetch(`/api/bulk-imports/${uuid}/commit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+    });
+    return response.json();
+}
+
+export async function cancelBulkImport(uuid) {
+    const response = await authFetch(`/api/bulk-imports/${uuid}/cancel`, {
+        method: 'POST',
+    });
+    return response.json();
+}
