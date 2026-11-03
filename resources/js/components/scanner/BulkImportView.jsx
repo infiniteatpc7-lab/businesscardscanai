@@ -23,6 +23,7 @@ import {
     uploadBulkItem,
     uploadBulkItemBackImage,
     processBulkImport,
+    processBulkImportNext,
     fetchBulkProgress,
     fetchBulkItems,
     updateBulkItem,
@@ -47,10 +48,20 @@ export default function BulkImportView({
     const [phase, setPhase] = useState('pick');
     const [selectedPhotos, setSelectedPhotos] = useState([]); // array of { id, file, dataUrl, backFile, backDataUrl }
     const [activeBatch, setActiveBatch] = useState(null);
+    const [isOptimizingPhotos, setIsOptimizingPhotos] = useState(false);
+    const [optimizingProgress, setOptimizingProgress] = useState({ current: 0, total: 0 });
 
     // Progress stats
     const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
-    const [processingStats, setProcessingStats] = useState({ total: 0, processed: 0, failed: 0 });
+    const [processingStats, setProcessingStats] = useState({
+        total: 0,
+        processed: 0,
+        pending: 0,
+        extracting: 0,
+        extracted: 0,
+        duplicate: 0,
+        failed: 0
+    });
 
     // Review stage state
     const [reviewFilter, setReviewFilter] = useState('all'); // 'all' | 'ready' | 'duplicate' | 'failed'
@@ -67,25 +78,41 @@ export default function BulkImportView({
         const files = Array.from(e.target.files || []);
         if (files.length === 0) return;
 
+        setIsOptimizingPhotos(true);
+        setOptimizingProgress({ current: 0, total: files.length });
+
         const processed = [];
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
+            setOptimizingProgress({ current: i + 1, total: files.length });
             try {
                 const { file: optFile, dataUrl } = await compressImage(file);
+                const safeName = (file && typeof file.name === 'string' && file.name)
+                    ? file.name
+                    : `card_${Date.now()}_${i + 1}.jpg`;
                 processed.push({
                     clientItemId: `photo_${Date.now()}_${i}_${Math.random().toString(36).substring(2, 7)}`,
-                    file: optFile,
+                    file: optFile || file,
                     dataUrl: dataUrl,
                     backFile: null,
                     backDataUrl: null,
-                    name: file.name
+                    name: safeName
                 });
             } catch (err) {
                 console.error('Photo optimization error:', err);
+                processed.push({
+                    clientItemId: `photo_${Date.now()}_${i}_${Math.random().toString(36).substring(2, 7)}`,
+                    file: file,
+                    dataUrl: null,
+                    backFile: null,
+                    backDataUrl: null,
+                    name: (file && file.name) ? file.name : `card_${Date.now()}_${i + 1}.jpg`
+                });
             }
         }
 
         setSelectedPhotos((prev) => [...prev, ...processed]);
+        setIsOptimizingPhotos(false);
         e.target.value = '';
     };
 
@@ -187,11 +214,26 @@ export default function BulkImportView({
         }
     };
 
-    // Polling effect during background processing
+    // Polling and processing runner during background processing
+    const isStepProcessingRef = useRef(false);
+
     useEffect(() => {
         let timer = null;
+        let isCancelled = false;
+
         if (phase === 'processing' && activeBatch) {
-            const checkProgress = async () => {
+            // Load initial items so card list appears immediately
+            fetchBulkItems(activeBatch.batch_uuid, 'all')
+                .then((res) => {
+                    if (!isCancelled && res.success && Array.isArray(res.items)) {
+                        setItems(res.items);
+                    }
+                })
+                .catch(console.error);
+
+            const pollAndDrive = async () => {
+                if (isCancelled) return;
+
                 try {
                     const res = await fetchBulkProgress(activeBatch.batch_uuid);
                     if (res.success && res.batch) {
@@ -199,26 +241,55 @@ export default function BulkImportView({
                         setProcessingStats({
                             total: b.total_items,
                             processed: b.processed_items,
-                            failed: b.failed_items
+                            pending: b.pending_items ?? 0,
+                            extracting: b.extracting_items ?? 0,
+                            extracted: b.extracted_items ?? 0,
+                            duplicate: b.duplicate_items ?? 0,
+                            failed: b.failed_items ?? 0
                         });
 
-                        if (b.status === 'ready_for_review' || (b.processed_items + b.failed_items >= b.total_items && b.total_items > 0)) {
-                            // Processing complete -> load review items
+                        // Refresh item states so thumbnails and labels update in real time
+                        const itemsRes = await fetchBulkItems(activeBatch.batch_uuid, 'all');
+                        if (!isCancelled && itemsRes.success && Array.isArray(itemsRes.items)) {
+                            setItems(itemsRes.items);
+                        }
+
+                        // Check completion
+                        const pendingCount = b.pending_items ?? 0;
+                        const extractingCount = b.extracting_items ?? 0;
+                        if (
+                            b.status === 'ready_for_review' ||
+                            (b.total_items > 0 && pendingCount === 0 && extractingCount === 0)
+                        ) {
                             loadReviewItems(activeBatch.batch_uuid);
                             return;
+                        }
+
+                        // Seamless worker driver: If queue worker is not running in local dev,
+                        // trigger processBulkImportNext so the user NEVER gets stuck!
+                        if (pendingCount > 0 && !isStepProcessingRef.current) {
+                            isStepProcessingRef.current = true;
+                            processBulkImportNext(activeBatch.batch_uuid)
+                                .catch(console.error)
+                                .finally(() => {
+                                    isStepProcessingRef.current = false;
+                                });
                         }
                     }
                 } catch (e) {
                     console.error('Progress poll error:', e);
                 }
 
-                timer = setTimeout(checkProgress, 2000);
+                if (!isCancelled) {
+                    timer = setTimeout(pollAndDrive, 1500);
+                }
             };
 
-            timer = setTimeout(checkProgress, 1000);
+            timer = setTimeout(pollAndDrive, 600);
         }
 
         return () => {
+            isCancelled = true;
             if (timer) clearTimeout(timer);
         };
     }, [phase, activeBatch?.batch_uuid]);
@@ -406,6 +477,19 @@ export default function BulkImportView({
                             </span>
                         </div>
 
+                        {/* Preparing / Optimizing Photos Indicator */}
+                        {isOptimizingPhotos && (
+                            <div className="p-3.5 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center gap-3">
+                                <RefreshCw className="w-4 h-4 text-indigo-600 animate-spin shrink-0" />
+                                <div className="min-w-0">
+                                    <p className="text-xs font-bold text-indigo-950">Preparing card photos from gallery...</p>
+                                    <p className="text-[11px] text-indigo-600">
+                                        Processing photo {optimizingProgress.current} of {optimizingProgress.total}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Dropzone for Multi-Photo Picker */}
                         <div
                             onClick={() => fileInputRef.current?.click()}
@@ -496,59 +580,164 @@ export default function BulkImportView({
 
             {/* PHASE 2: CONCURRENT UPLOAD PROGRESS */}
             {phase === 'uploading' && (
-                <div className="bg-white rounded-3xl p-8 text-center shadow-behance border border-black/[0.04] space-y-4">
+                <div className="bg-white rounded-3xl p-6 sm:p-8 text-center shadow-behance border border-black/[0.04] space-y-4">
                     <div className="w-14 h-14 rounded-2xl bg-blue-50 border border-blue-200 flex items-center justify-center mx-auto text-blue-600 animate-pulse">
                         <UploadCloud className="w-7 h-7" />
                     </div>
                     <div className="space-y-1">
-                        <h3 className="text-sm font-bold text-zinc-950">Uploading Photos to Secure Staging</h3>
+                        <h3 className="text-sm font-bold text-zinc-950">Uploading Photos to Staging</h3>
                         <p className="text-xs text-zinc-500">
-                            Uploading {uploadProgress.current} of {uploadProgress.total} card images...
+                            Uploaded {uploadProgress.current} of {uploadProgress.total} card images ({uploadProgress.total > 0 ? Math.round((uploadProgress.current / uploadProgress.total) * 100) : 0}%)
                         </p>
                     </div>
-                    <div className="w-full bg-zinc-100 rounded-full h-2.5 overflow-hidden">
+                    <div className="w-full bg-zinc-100 rounded-full h-3 overflow-hidden p-0.5">
                         <div
-                            className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                            className="bg-blue-600 h-full rounded-full transition-all duration-300 shadow-sm"
                             style={{
-                                width: `${uploadProgress.total > 0 ? (uploadProgress.current / uploadProgress.total) * 100 : 0}%`
+                                width: `${uploadProgress.total > 0 ? Math.min(100, Math.round((uploadProgress.current / uploadProgress.total) * 100)) : 0}%`
                             }}
                         />
                     </div>
                 </div>
             )}
 
-            {/* PHASE 3: AI OCR PROCESSING PROGRESS */}
+            {/* PHASE 3: LIVE AI OCR PROCESSING PROGRESS & CARDS BREAKDOWN */}
             {phase === 'processing' && (
-                <div className="bg-white rounded-3xl p-8 text-center shadow-behance border border-black/[0.04] space-y-4">
-                    <div className="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center mx-auto text-emerald-600">
-                        <Sparkles className="w-7 h-7 animate-spin" />
+                <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-behance border border-black/[0.04] space-y-4">
+                    {/* Header with Live animation */}
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-10 h-10 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
+                                <Sparkles className="w-5 h-5 animate-spin" />
+                            </div>
+                            <div className="min-w-0">
+                                <h3 className="text-sm font-bold text-zinc-950 flex items-center gap-2">
+                                    <span>Scanning with Gemini AI</span>
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 animate-pulse">
+                                        LIVE
+                                    </span>
+                                </h3>
+                                <p className="text-xs text-zinc-500 truncate">
+                                    Processed {processingStats.processed + processingStats.failed} of {processingStats.total} cards
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handleCancelBatch}
+                            className="px-3 py-1.5 rounded-xl bg-zinc-100 hover:bg-red-50 hover:text-red-600 text-zinc-600 text-xs font-bold transition-colors shrink-0"
+                        >
+                            Cancel
+                        </button>
                     </div>
-                    <div className="space-y-1">
-                        <h3 className="text-sm font-bold text-zinc-950">AI Multimodal OCR in Progress</h3>
-                        <p className="text-xs text-zinc-500">
-                            Extracted {processingStats.processed} of {processingStats.total} cards with Gemini Vision
-                        </p>
-                        {processingStats.failed > 0 && (
-                            <p className="text-[11px] text-amber-600 font-semibold">
-                                {processingStats.failed} cards flagged for manual review
-                            </p>
-                        )}
+
+                    {/* Accurate Real-time Progress Bar */}
+                    <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-xs font-bold">
+                            <span className="text-zinc-600">Scan Progress</span>
+                            <span className="text-emerald-600 font-mono">
+                                {processingStats.total > 0
+                                    ? Math.round(((processingStats.processed + processingStats.failed) / processingStats.total) * 100)
+                                    : 0}%
+                            </span>
+                        </div>
+                        <div className="w-full bg-zinc-100 rounded-full h-3 overflow-hidden p-0.5">
+                            <div
+                                className="bg-gradient-to-r from-emerald-500 to-teal-500 h-full rounded-full transition-all duration-500 shadow-sm"
+                                style={{
+                                    width: `${processingStats.total > 0
+                                        ? Math.min(100, Math.round(((processingStats.processed + processingStats.failed) / processingStats.total) * 100))
+                                        : 0}%`
+                                }}
+                            />
+                        </div>
                     </div>
-                    <div className="w-full bg-zinc-100 rounded-full h-2.5 overflow-hidden">
-                        <div
-                            className="bg-emerald-600 h-2.5 rounded-full transition-all duration-300"
-                            style={{
-                                width: `${processingStats.total > 0 ? (processingStats.processed / processingStats.total) * 100 : 0}%`
-                            }}
-                        />
+
+                    {/* Status Breakdown Badges: Scanned, Pending, Duplicates, Failed */}
+                    <div className="grid grid-cols-4 gap-2 pt-1 text-center">
+                        <div className="p-2.5 rounded-2xl bg-emerald-50/80 border border-emerald-100">
+                            <span className="text-[10px] uppercase font-bold text-emerald-600 block">Scanned</span>
+                            <span className="text-base font-black text-emerald-950">{processingStats.extracted || 0}</span>
+                        </div>
+                        <div className="p-2.5 rounded-2xl bg-amber-50/80 border border-amber-100">
+                            <span className="text-[10px] uppercase font-bold text-amber-600 block">Pending</span>
+                            <span className="text-base font-black text-amber-950">{processingStats.pending || 0}</span>
+                        </div>
+                        <div className="p-2.5 rounded-2xl bg-purple-50/80 border border-purple-100">
+                            <span className="text-[10px] uppercase font-bold text-purple-600 block">Duplicate</span>
+                            <span className="text-base font-black text-purple-950">{processingStats.duplicate || 0}</span>
+                        </div>
+                        <div className="p-2.5 rounded-2xl bg-rose-50/80 border border-rose-100">
+                            <span className="text-[10px] uppercase font-bold text-rose-600 block">Failed</span>
+                            <span className="text-base font-black text-rose-950">{processingStats.failed || 0}</span>
+                        </div>
                     </div>
-                    <button
-                        type="button"
-                        onClick={handleCancelBatch}
-                        className="text-xs font-semibold text-zinc-400 hover:text-red-600 transition-colors"
-                    >
-                        Cancel Batch
-                    </button>
+
+                    {/* Live Cards Progress Grid */}
+                    {items.length > 0 && (
+                        <div className="space-y-2 pt-2 border-t border-zinc-100">
+                            <div className="flex items-center justify-between text-xs font-bold text-zinc-500">
+                                <span>Batch Cards Status</span>
+                                <span>{items.length} Cards</span>
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-72 overflow-y-auto p-1">
+                                {items.map((item, idx) => {
+                                    const isDone = item.status === 'extracted' || item.status === 'ready';
+                                    const isDup = item.status === 'duplicate_detected';
+                                    const isFail = item.status === 'failed';
+                                    const isCur = item.status === 'extracting';
+                                    const parsed = item.parsed_data || {};
+
+                                    return (
+                                        <div
+                                            key={item.id}
+                                            className={`p-2.5 rounded-2xl border transition-all flex flex-col justify-between ${
+                                                isDone
+                                                    ? 'bg-emerald-50/50 border-emerald-200'
+                                                    : isDup
+                                                    ? 'bg-purple-50/50 border-purple-200'
+                                                    : isFail
+                                                    ? 'bg-rose-50/50 border-rose-200'
+                                                    : isCur
+                                                    ? 'bg-blue-50/50 border-blue-300 ring-2 ring-blue-400/20'
+                                                    : 'bg-zinc-50 border-zinc-200'
+                                            }`}
+                                        >
+                                            <div className="flex items-center justify-between mb-1.5">
+                                                <span className="text-[10px] font-mono font-bold text-zinc-400">
+                                                    #{idx + 1}
+                                                </span>
+                                                <span
+                                                    className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${
+                                                        isDone
+                                                            ? 'bg-emerald-100 text-emerald-800'
+                                                            : isDup
+                                                            ? 'bg-purple-100 text-purple-800'
+                                                            : isFail
+                                                            ? 'bg-rose-100 text-rose-800'
+                                                            : isCur
+                                                            ? 'bg-blue-100 text-blue-800 animate-pulse'
+                                                            : 'bg-zinc-200 text-zinc-600'
+                                                    }`}
+                                                >
+                                                    {isDone ? '✓ Scanned' : isDup ? 'Duplicate' : isFail ? 'Failed' : isCur ? 'Scanning...' : 'Pending'}
+                                                </span>
+                                            </div>
+
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-bold text-zinc-950 truncate">
+                                                    {parsed.name || (isCur ? 'Reading card...' : isDone ? 'Contact Extracted' : 'Card Photo')}
+                                                </p>
+                                                <p className="text-[10px] text-zinc-500 truncate">
+                                                    {parsed.company || (isDone ? 'Company found' : isFail ? 'Unreadable card' : 'Waiting in queue')}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 

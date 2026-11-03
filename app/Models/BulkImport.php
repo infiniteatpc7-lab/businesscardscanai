@@ -129,4 +129,3 @@ class BulkImport extends Model
         return $query->where('workspace_id', $workspaceId);
     }
 }
-

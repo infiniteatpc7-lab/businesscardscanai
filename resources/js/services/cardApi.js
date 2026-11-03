@@ -446,6 +446,13 @@ export async function processBulkImport(uuid) {
     return response.json();
 }
 
+export async function processBulkImportNext(uuid) {
+    const response = await authFetch(`/api/bulk-imports/${uuid}/process-next`, {
+        method: 'POST',
+    });
+    return response.json();
+}
+
 export async function fetchBulkProgress(uuid) {
     const response = await authFetch(`/api/bulk-imports/${uuid}/progress`);
     return response.json();

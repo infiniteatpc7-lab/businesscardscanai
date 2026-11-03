@@ -26,9 +26,12 @@ export function useImageProcessor() {
                     ctx.drawImage(img, 0, 0, w, h);
                     const dataUrl = canvas.toDataURL('image/jpeg', quality);
                     canvas.toBlob((blob) => {
+                        const baseName = (file && typeof file.name === 'string' && file.name) 
+                            ? file.name.replace(/\.[^/.]+$/, '') 
+                            : `photo_${Date.now()}`;
                         const optimizedFile = new File(
                             [blob],
-                            file.name.replace(/\.[^/.]+$/, '') + '.jpg',
+                            baseName + '.jpg',
                             { type: 'image/jpeg' }
                         );
                         resolve({ file: optimizedFile, dataUrl });

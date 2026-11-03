@@ -11,6 +11,7 @@ use App\Services\BulkCardSaveService;
 use App\Services\CardImageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
@@ -243,11 +244,68 @@ class BulkImportController extends Controller
     }
 
     /**
-     * Lightweight polling endpoint for batch extraction and save progress.
+     * Process next pending item synchronously if background queue worker is idle.
+     * Guarantees that progress never hangs in any local or queue-less environment.
+     */
+    public function processNext(Request $request, string $uuid): JsonResponse
+    {
+        $batch = $this->resolveBatch($request, $uuid);
+
+        if ($batch->isCancelled()) {
+            return response()->json(['success' => false, 'message' => 'Batch cancelled.'], 422);
+        }
+
+        $nextItem = $batch->items()->where('status', 'pending')->first();
+        if (! $nextItem) {
+            $batch->recalculateCounters();
+            $batch->refresh();
+
+            return response()->json([
+                'success' => true,
+                'has_more' => false,
+                'batch_status' => $batch->status,
+                'message' => 'No more pending items.',
+            ]);
+        }
+
+        // Execute synchronously via job's handle logic
+        try {
+            ProcessBulkImportItemJob::dispatchSync($nextItem->id);
+        } catch (\Throwable $e) {
+            Log::error('Synchronous bulk item processing error', [
+                'item_id' => $nextItem->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        $batch->refresh();
+        $batch->recalculateCounters();
+        $batch->refresh();
+
+        $remainingCount = $batch->items()->where('status', 'pending')->count();
+
+        return response()->json([
+            'success' => true,
+            'has_more' => $remainingCount > 0,
+            'remaining' => $remainingCount,
+            'batch_status' => $batch->status,
+            'processed_item_id' => $nextItem->id,
+        ]);
+    }
+
+    /**
+     * Lightweight polling endpoint for batch extraction and save progress with full breakdown.
      */
     public function progress(Request $request, string $uuid): JsonResponse
     {
         $batch = $this->resolveBatch($request, $uuid);
+
+        $statusCounts = DB::table('bulk_import_items')
+            ->where('bulk_import_id', $batch->id)
+            ->select('status', DB::raw('COUNT(*) as total'))
+            ->groupBy('status')
+            ->pluck('total', 'status')
+            ->all();
 
         return response()->json([
             'success' => true,
@@ -257,6 +315,10 @@ class BulkImportController extends Controller
                 'total_items' => $batch->total_items,
                 'uploaded_items' => $batch->uploaded_items,
                 'processed_items' => $batch->processed_items,
+                'pending_items' => (int) ($statusCounts['pending'] ?? 0),
+                'extracting_items' => (int) ($statusCounts['extracting'] ?? 0),
+                'extracted_items' => (int) ($statusCounts['extracted'] ?? 0),
+                'duplicate_items' => (int) ($statusCounts['duplicate_detected'] ?? 0),
                 'failed_items' => $batch->failed_items,
                 'saved_items' => $batch->saved_items,
                 'skipped_items' => $batch->skipped_items,

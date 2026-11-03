@@ -65,6 +65,7 @@ Route::middleware('api.auth')->group(function () {
     Route::post('/bulk-imports/{uuid}/items', [BulkImportController::class, 'uploadItem'])->middleware('throttle:120,1');
     Route::post('/bulk-imports/{uuid}/items/{itemId}/back-image', [BulkImportController::class, 'uploadItemBackImage'])->middleware('throttle:60,1');
     Route::post('/bulk-imports/{uuid}/process', [BulkImportController::class, 'process']);
+    Route::post('/bulk-imports/{uuid}/process-next', [BulkImportController::class, 'processNext']);
     Route::get('/bulk-imports/{uuid}/progress', [BulkImportController::class, 'progress']);
     Route::get('/bulk-imports/{uuid}/items', [BulkImportController::class, 'items']);
     Route::get('/bulk-imports/{uuid}/items/{itemId}/image', [BulkImportController::class, 'image']);
