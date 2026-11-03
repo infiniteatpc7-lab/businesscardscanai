@@ -26,6 +26,7 @@ import {
     processBulkImportNext,
     fetchBulkProgress,
     fetchBulkItems,
+    fetchBulkItemImageBlob,
     updateBulkItem,
     retryBulkItem,
     commitBulkImport,
@@ -34,11 +35,46 @@ import {
 import { useImageProcessor } from '../../hooks/useImageProcessor';
 import { useToast } from '../../context/ToastContext';
 
+// Authenticated image thumbnail component for bulk items
+function BulkItemThumbnail({ batchUuid, itemId }) {
+    const [blobUrl, setBlobUrl] = useState(null);
+
+    useEffect(() => {
+        let isCancelled = false;
+        if (batchUuid && itemId) {
+            fetchBulkItemImageBlob(batchUuid, itemId).then((url) => {
+                if (!isCancelled && url) setBlobUrl(url);
+            });
+        }
+        return () => {
+            isCancelled = true;
+            if (blobUrl) URL.revokeObjectURL(blobUrl);
+        };
+    }, [batchUuid, itemId]);
+
+    if (!blobUrl) {
+        return (
+            <div className="w-full h-full bg-zinc-800 flex items-center justify-center text-zinc-500">
+                <FileText className="w-5 h-5 opacity-40" />
+            </div>
+        );
+    }
+
+    return (
+        <img
+            src={blobUrl}
+            alt="Card"
+            className="w-full h-full object-cover"
+        />
+    );
+}
+
 export default function BulkImportView({
     currentExhibition,
     onOpenExhibitionSelector,
     onNavigateToCards,
-    onBatchSaved
+    onBatchSaved,
+    onIdleChange
 }) {
     const { showToast } = useToast();
     const { compressImage } = useImageProcessor();
@@ -50,6 +86,12 @@ export default function BulkImportView({
     const [activeBatch, setActiveBatch] = useState(null);
     const [isOptimizingPhotos, setIsOptimizingPhotos] = useState(false);
     const [optimizingProgress, setOptimizingProgress] = useState({ current: 0, total: 0 });
+    const [previewingPhoto, setPreviewingPhoto] = useState(null); // Full photo inspect modal
+
+    // Notify parent for vertical centering
+    useEffect(() => {
+        onIdleChange?.(phase === 'pick' && selectedPhotos.length === 0);
+    }, [phase, selectedPhotos.length, onIdleChange]);
 
     // Progress stats
     const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
@@ -342,6 +384,39 @@ export default function BulkImportView({
         });
     };
 
+    // Open item editor modal directly by Item ID
+    const handleOpenEditItemById = (itemId) => {
+        const item = items.find((it) => it.id === itemId);
+        if (!item) return;
+
+        const idxInFiltered = filteredItems.findIndex((it) => it.id === itemId);
+        if (idxInFiltered !== -1) {
+            handleOpenEditItem(idxInFiltered);
+        } else {
+            setReviewFilter('all');
+            const allIdx = items.findIndex((it) => it.id === itemId);
+            setEditingItemIndex(allIdx >= 0 ? allIdx : 0);
+            setEditFormData({
+                company: item.extracted_data?.company || '',
+                company_english: item.extracted_data?.company_english || '',
+                name: item.extracted_data?.name || '',
+                name_english: item.extracted_data?.name_english || '',
+                designation: item.extracted_data?.designation || '',
+                department: item.extracted_data?.department || '',
+                phone: Array.isArray(item.extracted_data?.phone) ? [...item.extracted_data.phone] : (item.extracted_data?.phone ? [item.extracted_data.phone] : []),
+                email: item.extracted_data?.email || '',
+                website: item.extracted_data?.website || '',
+                address: item.extracted_data?.address || '',
+                address_english: item.extracted_data?.address_english || '',
+                tagline_services: item.extracted_data?.tagline_services || '',
+                tax_id: item.extracted_data?.tax_id || '',
+                social_profiles: Array.isArray(item.extracted_data?.social_profiles) ? [...item.extracted_data.social_profiles] : [],
+                decision: item.decision || (item.status === 'duplicate_detected' ? 'link_existing' : 'create_new'),
+                matched_card_id: item.matched_card_id || null,
+            });
+        }
+    };
+
     // Save in-place edits to item
     const handleSaveItemEdit = async () => {
         if (editingItemIndex === null || !editFormData || !activeBatch) return;
@@ -532,7 +607,9 @@ export default function BulkImportView({
                                     {selectedPhotos.map((photo, idx) => (
                                         <div
                                             key={photo.clientItemId}
-                                            className="relative rounded-xl overflow-hidden border border-zinc-200 bg-zinc-900 aspect-[3/2] group"
+                                            onClick={() => setPreviewingPhoto(photo)}
+                                            className="relative rounded-xl overflow-hidden border border-zinc-200 bg-zinc-900 aspect-[3/2] group cursor-pointer hover:border-indigo-400 active:scale-95 transition-all shadow-xs"
+                                            title="Tap to preview card photo"
                                         >
                                             <img
                                                 src={photo.dataUrl}
@@ -544,14 +621,21 @@ export default function BulkImportView({
                                             </span>
                                             <button
                                                 type="button"
-                                                onClick={() => handleRemoveSelectedPhoto(photo.clientItemId)}
-                                                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center shadow-sm"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleRemoveSelectedPhoto(photo.clientItemId);
+                                                }}
+                                                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center shadow-sm hover:scale-110 active:scale-95 transition-transform"
+                                                title="Remove photo"
                                             >
                                                 <X className="w-3 h-3" />
                                             </button>
 
                                             {/* Attach Back Photo Button */}
-                                            <label className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-white/90 text-zinc-900 text-[8px] font-bold cursor-pointer hover:bg-white flex items-center gap-0.5">
+                                            <label
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-white/90 text-zinc-900 text-[8px] font-bold cursor-pointer hover:bg-white flex items-center gap-0.5 shadow-xs"
+                                            >
                                                 <input
                                                     type="file"
                                                     accept="image/*"
@@ -686,12 +770,20 @@ export default function BulkImportView({
                                     const isDup = item.status === 'duplicate_detected';
                                     const isFail = item.status === 'failed';
                                     const isCur = item.status === 'extracting';
-                                    const parsed = item.parsed_data || {};
+                                    const parsed = item.extracted_data || item.parsed_data || {};
+                                    const canView = isDone || isDup;
 
                                     return (
                                         <div
                                             key={item.id}
+                                            onClick={() => {
+                                                if (canView) {
+                                                    handleOpenEditItemById(item.id);
+                                                }
+                                            }}
                                             className={`p-2.5 rounded-2xl border transition-all flex flex-col justify-between ${
+                                                canView ? 'cursor-pointer hover:border-black active:scale-95 shadow-xs' : ''
+                                            } ${
                                                 isDone
                                                     ? 'bg-emerald-50/50 border-emerald-200'
                                                     : isDup
@@ -702,6 +794,7 @@ export default function BulkImportView({
                                                     ? 'bg-blue-50/50 border-blue-300 ring-2 ring-blue-400/20'
                                                     : 'bg-zinc-50 border-zinc-200'
                                             }`}
+                                            title={canView ? 'Tap to view card details' : ''}
                                         >
                                             <div className="flex items-center justify-between mb-1.5">
                                                 <span className="text-[10px] font-mono font-bold text-zinc-400">
@@ -810,14 +903,7 @@ export default function BulkImportView({
                                     className="bg-white rounded-2xl p-2.5 border border-black/[0.06] shadow-xs cursor-pointer hover:border-black transition-all space-y-2 relative"
                                 >
                                     <div className="relative aspect-[3/2] rounded-xl overflow-hidden bg-zinc-900 border border-zinc-200">
-                                        <img
-                                            src={`/api/bulk-imports/${activeBatch?.batch_uuid}/items/${item.id}/image`}
-                                            alt="Card"
-                                            className="w-full h-full object-cover"
-                                            onError={(e) => {
-                                                e.target.style.display = 'none';
-                                            }}
-                                        />
+                                        <BulkItemThumbnail batchUuid={activeBatch?.batch_uuid} itemId={item.id} />
                                         {/* Status Badge */}
                                         <span
                                             className={`absolute top-1.5 right-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wider uppercase ${
@@ -971,6 +1057,73 @@ export default function BulkImportView({
                     >
                         View in Directory
                     </button>
+                </div>
+            )}
+
+            {/* FULL PHOTO PREVIEW MODAL FOR STAGED PHOTOS */}
+            {previewingPhoto && (
+                <div
+                    onClick={() => setPreviewingPhoto(null)}
+                    className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in"
+                >
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="bg-zinc-950 text-white rounded-3xl overflow-hidden max-w-md w-full shadow-2xl border border-white/10 space-y-3 p-4"
+                    >
+                        <div className="flex items-center justify-between pb-2 border-b border-zinc-800">
+                            <span className="text-xs font-mono font-bold text-zinc-300">
+                                {previewingPhoto.name || 'Card Photo Preview'}
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => setPreviewingPhoto(null)}
+                                className="w-7 h-7 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-300"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        <div className="rounded-2xl overflow-hidden bg-black max-h-[60vh] flex items-center justify-center">
+                            <img
+                                src={previewingPhoto.dataUrl}
+                                alt="Full Card Preview"
+                                className="max-h-[60vh] w-auto object-contain mx-auto"
+                            />
+                        </div>
+
+                        {previewingPhoto.backDataUrl && (
+                            <div className="space-y-1 pt-2 border-t border-zinc-800">
+                                <span className="text-[10px] uppercase font-bold text-zinc-400 block">Back Side</span>
+                                <div className="rounded-xl overflow-hidden bg-black max-h-36 flex items-center justify-center">
+                                    <img
+                                        src={previewingPhoto.backDataUrl}
+                                        alt="Back Side Preview"
+                                        className="max-h-36 w-auto object-contain"
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="flex items-center justify-between pt-1">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    handleRemoveSelectedPhoto(previewingPhoto.clientItemId);
+                                    setPreviewingPhoto(null);
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-red-600/20 text-red-400 hover:bg-red-600/30 text-xs font-bold transition-colors"
+                            >
+                                Remove Photo
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setPreviewingPhoto(null)}
+                                className="px-4 py-1.5 rounded-xl bg-white text-zinc-950 text-xs font-bold transition-all"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

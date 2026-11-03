@@ -208,7 +208,7 @@ export default function SwipeableCardItem({
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
                 onClick={() => {
-                    if (Math.abs(offsetX) < 5) {
+                    if (Math.abs(offsetX) < 15) {
                         onSelectCard(card);
                     }
                 }}

@@ -37,6 +37,7 @@ export default function MobileScannerView({
     const { compressImage } = useImageProcessor();
 
     const [scanMode, setScanMode] = useState('single'); // 'single' | 'bulk'
+    const [isBulkIdle, setIsBulkIdle] = useState(true);
 
     const [imageFile, setImageFile] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
@@ -247,7 +248,7 @@ export default function MobileScannerView({
     const isLandline = isLandlineNumber(primaryPhone);
 
     return (
-        <div className={`space-y-4 pb-24 ${!cardData && scanMode === 'single' ? 'flex-1 flex flex-col justify-center my-auto' : ''}`}>
+        <div className={`space-y-4 pb-24 ${(!cardData && scanMode === 'single') || (scanMode === 'bulk' && isBulkIdle) ? 'flex-1 flex flex-col justify-center my-auto' : ''}`}>
             {/* Scan Mode Switcher (Single vs Bulk Import) */}
             <div className="flex items-center p-1 bg-zinc-100 rounded-2xl">
                 <button
@@ -276,6 +277,7 @@ export default function MobileScannerView({
                     onOpenExhibitionSelector={onOpenExhibitionSelector}
                     onNavigateToCards={onNavigateToCards}
                     onBatchSaved={() => onCardSaved?.(null)}
+                    onIdleChange={setIsBulkIdle}
                 />
             ) : (
                 <>

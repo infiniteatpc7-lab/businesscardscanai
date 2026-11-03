@@ -179,8 +179,11 @@ function MobileAppContent() {
         showToast('Signed out successfully');
     };
 
-    const handleCardSaved = () => {
+    const handleCardSaved = (savedCard) => {
         loadCards();
+        if (savedCard) {
+            setSelectedCardForModal(savedCard);
+        }
         setActiveTab('cards');
     };
 

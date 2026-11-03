@@ -307,6 +307,13 @@ class BulkImportController extends Controller
             ->pluck('total', 'status')
             ->all();
 
+        $statusCounts = DB::table('bulk_import_items')
+            ->where('bulk_import_id', $batch->id)
+            ->select('status', DB::raw('COUNT(*) as total'))
+            ->groupBy('status')
+            ->pluck('total', 'status')
+            ->all();
+
         return response()->json([
             'success' => true,
             'batch' => [

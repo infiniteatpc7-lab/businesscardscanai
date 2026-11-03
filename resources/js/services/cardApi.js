@@ -463,6 +463,19 @@ export async function fetchBulkItems(uuid, filter = 'all') {
     return response.json();
 }
 
+export async function fetchBulkItemImageBlob(uuid, itemId, type = 'front') {
+    if (!uuid || !itemId) return null;
+    try {
+        const query = type === 'back' ? '?type=back' : '';
+        const response = await authFetch(`/api/bulk-imports/${uuid}/items/${itemId}/image${query}`);
+        if (!response.ok) return null;
+        const blob = await response.blob();
+        return URL.createObjectURL(blob);
+    } catch {
+        return null;
+    }
+}
+
 export async function updateBulkItem(uuid, itemId, payload) {
     const response = await authFetch(`/api/bulk-imports/${uuid}/items/${itemId}`, {
         method: 'PUT',
