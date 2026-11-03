@@ -134,6 +134,10 @@ export default function TeamMembersModal({
     };
 
     const handleRevoke = async (inviteId) => {
+        if (!window.confirm('Are you sure you want to revoke this pending invitation?')) {
+            return;
+        }
+
         try {
             const res = await revokeInvitation(workspace.id, inviteId);
             if (res.success) {

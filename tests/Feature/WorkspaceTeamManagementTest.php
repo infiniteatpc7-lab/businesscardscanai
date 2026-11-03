@@ -618,4 +618,276 @@ class WorkspaceTeamManagementTest extends TestCase
 
         $throttledRes->assertStatus(429);
     }
+
+    /**
+     * 18. Member cannot retrieve team members or pending invitations.
+     */
+    public function test_member_cannot_retrieve_team_members_or_invitations(): void
+    {
+        $owner = $this->createWorkspaceUser('Owner Secure', 'secureowner@example.com');
+
+        $member = User::create([
+            'name' => 'Regular Staff',
+            'email' => 'regularstaff@example.com',
+            'password' => bcrypt('password123'),
+            'current_workspace_id' => $owner['workspace']->id,
+        ]);
+        $owner['workspace']->users()->attach($member->id, ['role' => 'member']);
+        $memberToken = $member->createToken('member_token')['plain_token'];
+
+        // Member calling members list -> 403 Forbidden
+        $this->withHeaders([
+            'Authorization' => 'Bearer '.$memberToken,
+        ])->getJson("/api/workspaces/{$owner['workspace']->id}/members")
+            ->assertStatus(403)
+            ->assertJsonPath('success', false);
+    }
+
+    /**
+     * 19. Admin sees only member invitations, never admin invitations.
+     */
+    public function test_admin_only_sees_member_invitations(): void
+    {
+        Mail::fake();
+
+        $owner = $this->createWorkspaceUser('Owner Filter', 'filterowner@example.com');
+
+        $admin = User::create([
+            'name' => 'Workspace Admin',
+            'email' => 'adminfilter@example.com',
+            'password' => bcrypt('password123'),
+            'current_workspace_id' => $owner['workspace']->id,
+        ]);
+        $owner['workspace']->users()->attach($admin->id, ['role' => 'admin']);
+        $adminToken = $admin->createToken('admin_token')['plain_token'];
+
+        // Owner creates 1 Admin invite and 1 Member invite
+        WorkspaceInvitation::createInvitation($owner['workspace'], $owner['user'], 'pendingadmin@example.com', 'admin');
+        WorkspaceInvitation::createInvitation($owner['workspace'], $owner['user'], 'pendingmember@example.com', 'member');
+
+        // Admin checks members endpoint
+        $res = $this->withHeaders([
+            'Authorization' => 'Bearer '.$adminToken,
+        ])->getJson("/api/workspaces/{$owner['workspace']->id}/members");
+
+        $res->assertStatus(200);
+        $invitations = $res->json('invitations');
+
+        $this->assertCount(1, $invitations);
+        $this->assertEquals('member', $invitations[0]['role']);
+        $this->assertEquals('pendingmember@example.com', $invitations[0]['email']);
+    }
+
+    /**
+     * 20. Users cannot modify their own role (self-promotion or self-demotion is blocked).
+     */
+    public function test_self_role_modification_is_blocked(): void
+    {
+        $owner = $this->createWorkspaceUser('Owner Self', 'ownerself@example.com');
+
+        $admin = User::create([
+            'name' => 'Self Admin',
+            'email' => 'selfadmin@example.com',
+            'password' => bcrypt('password123'),
+            'current_workspace_id' => $owner['workspace']->id,
+        ]);
+        $owner['workspace']->users()->attach($admin->id, ['role' => 'admin']);
+        $adminToken = $admin->createToken('admin_token')['plain_token'];
+
+        // Admin attempting to change own role -> 403 Forbidden
+        $this->withHeaders([
+            'Authorization' => 'Bearer '.$adminToken,
+        ])->patchJson("/api/workspaces/{$owner['workspace']->id}/members/{$admin->id}", [
+            'role' => 'member',
+        ])->assertStatus(403)
+            ->assertJsonPath('message', 'You cannot change your own role.');
+    }
+
+    /**
+     * 21. Existing workspace member cannot have their role overwritten by an invitation.
+     */
+    public function test_existing_workspace_member_cannot_have_role_overwritten_by_invitation(): void
+    {
+        $owner = $this->createWorkspaceUser('Owner Overwrite', 'owneroverwrite@example.com');
+
+        $member = User::create([
+            'name' => 'Existing Member',
+            'email' => 'existingmember@example.com',
+            'password' => bcrypt('password123'),
+            'current_workspace_id' => $owner['workspace']->id,
+        ]);
+        $owner['workspace']->users()->attach($member->id, ['role' => 'member']);
+        $memberToken = $member->createToken('member_token')['plain_token'];
+
+        // An invitation was somehow issued for this email with 'admin' role
+        $inviteData = WorkspaceInvitation::createInvitation(
+            $owner['workspace'],
+            $owner['user'],
+            'existingmember@example.com',
+            'admin'
+        );
+
+        // Member tries to accept to upgrade to admin -> 422 Unprocessable
+        $this->withHeaders([
+            'Authorization' => 'Bearer '.$memberToken,
+        ])->postJson("/api/invitations/{$inviteData['plainToken']}/accept")
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+
+        // Verify role remained 'member'
+        $this->assertEquals('member', $owner['workspace']->getUserRole($member));
+    }
+
+    /**
+     * 22. Removed member immediately loses access to workspace, but retains access to their other workspaces.
+     */
+    public function test_removed_member_loses_access_immediately_but_retains_other_workspaces(): void
+    {
+        $ownerA = $this->createWorkspaceUser('Owner A', 'ownerA_test@example.com');
+        $ownerB = $this->createWorkspaceUser('Owner B', 'ownerB_test@example.com');
+
+        // User belongs to both Workspace A and Workspace B
+        $user = User::create([
+            'name' => 'Dual Member',
+            'email' => 'dual@example.com',
+            'password' => bcrypt('password123'),
+            'current_workspace_id' => $ownerA['workspace']->id,
+        ]);
+        $ownerA['workspace']->users()->attach($user->id, ['role' => 'member']);
+        $ownerB['workspace']->users()->attach($user->id, ['role' => 'member']);
+        $userToken = $user->createToken('dual_token')['plain_token'];
+
+        // Create cards in both workspaces
+        $cardA = Card::create(['workspace_id' => $ownerA['workspace']->id, 'name' => 'Card In A']);
+        $cardB = Card::create(['workspace_id' => $ownerB['workspace']->id, 'name' => 'Card In B']);
+
+        // Owner A removes the member from Workspace A
+        $this->withHeaders([
+            'Authorization' => 'Bearer '.$ownerA['token'],
+        ])->deleteJson("/api/workspaces/{$ownerA['workspace']->id}/members/{$user->id}")
+            ->assertStatus(200);
+
+        // User attempting to access cards in Workspace A via X-Workspace-Id header -> 403 Forbidden
+        $this->withHeaders([
+            'Authorization' => 'Bearer '.$userToken,
+            'X-Workspace-Id' => (string) $ownerA['workspace']->id,
+        ])->getJson('/api/cards')
+            ->assertStatus(403);
+
+        // User accessing cards in Workspace B -> 200 OK
+        $this->withHeaders([
+            'Authorization' => 'Bearer '.$userToken,
+            'X-Workspace-Id' => (string) $ownerB['workspace']->id,
+        ])->getJson('/api/cards')
+            ->assertStatus(200)
+            ->assertJsonPath('success', true);
+    }
+
+    /**
+     * 23. Owner can promote Member to Admin and demote Admin to Member.
+     */
+    public function test_owner_can_promote_and_demote_team_members(): void
+    {
+        $owner = $this->createWorkspaceUser('Owner Hierarchy', 'ownerhierarchy@example.com');
+
+        $staff = User::create([
+            'name' => 'Staff Hierarchy',
+            'email' => 'staffhier@example.com',
+            'password' => bcrypt('password123'),
+            'current_workspace_id' => $owner['workspace']->id,
+        ]);
+        $owner['workspace']->users()->attach($staff->id, ['role' => 'member']);
+
+        // 1. Promote Member -> Admin
+        $this->withHeaders([
+            'Authorization' => 'Bearer '.$owner['token'],
+        ])->patchJson("/api/workspaces/{$owner['workspace']->id}/members/{$staff->id}", [
+            'role' => 'admin',
+        ])->assertStatus(200)
+            ->assertJsonPath('member.role', 'admin');
+
+        $this->assertEquals('admin', $owner['workspace']->getUserRole($staff));
+
+        // 2. Demote Admin -> Member
+        $this->withHeaders([
+            'Authorization' => 'Bearer '.$owner['token'],
+        ])->patchJson("/api/workspaces/{$owner['workspace']->id}/members/{$staff->id}", [
+            'role' => 'member',
+        ])->assertStatus(200)
+            ->assertJsonPath('member.role', 'member');
+
+        $this->assertEquals('member', $owner['workspace']->getUserRole($staff));
+    }
+
+    /**
+     * 24. Admin cannot modify or remove workspace Owner.
+     */
+    public function test_admin_cannot_modify_or_remove_workspace_owner(): void
+    {
+        $owner = $this->createWorkspaceUser('Big Boss', 'bigboss@example.com');
+
+        $admin = User::create([
+            'name' => 'Sub Admin',
+            'email' => 'subadmin@example.com',
+            'password' => bcrypt('password123'),
+            'current_workspace_id' => $owner['workspace']->id,
+        ]);
+        $owner['workspace']->users()->attach($admin->id, ['role' => 'admin']);
+        $adminToken = $admin->createToken('admin_token')['plain_token'];
+
+        // Admin attempting to demote Owner -> 403 Forbidden
+        $this->withHeaders([
+            'Authorization' => 'Bearer '.$adminToken,
+        ])->patchJson("/api/workspaces/{$owner['workspace']->id}/members/{$owner['user']->id}", [
+            'role' => 'member',
+        ])->assertStatus(403);
+
+        // Admin attempting to remove Owner -> 403 Forbidden
+        $this->withHeaders([
+            'Authorization' => 'Bearer '.$adminToken,
+        ])->deleteJson("/api/workspaces/{$owner['workspace']->id}/members/{$owner['user']->id}")
+            ->assertStatus(403);
+    }
+
+    /**
+     * 25. Concurrent or duplicate invitation acceptance cannot attach user twice or return false success.
+     */
+    public function test_concurrent_or_duplicate_acceptance_cannot_attach_twice(): void
+    {
+        $owner = $this->createWorkspaceUser('Owner Race', 'ownerrace@example.com');
+
+        $inviteData = WorkspaceInvitation::createInvitation(
+            $owner['workspace'],
+            $owner['user'],
+            'raceuser@example.com',
+            'member'
+        );
+
+        $user = User::create([
+            'name' => 'Race User',
+            'email' => 'raceuser@example.com',
+            'password' => bcrypt('password123'),
+        ]);
+        $token = $user->createToken('race_token')['plain_token'];
+
+        // First acceptance -> 200 OK
+        $res1 = $this->withHeaders([
+            'Authorization' => 'Bearer '.$token,
+        ])->postJson("/api/invitations/{$inviteData['plainToken']}/accept");
+
+        $res1->assertStatus(200)
+            ->assertJsonPath('success', true);
+
+        // Second duplicate acceptance attempt -> 410 Already Accepted (never falls through to false success)
+        $res2 = $this->withHeaders([
+            'Authorization' => 'Bearer '.$token,
+        ])->postJson("/api/invitations/{$inviteData['plainToken']}/accept");
+
+        $res2->assertStatus(410)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'This invitation has already been accepted.');
+
+        // User should only appear ONCE in the workspace pivot
+        $this->assertEquals(1, $owner['workspace']->users()->where('users.id', $user->id)->count());
+    }
 }

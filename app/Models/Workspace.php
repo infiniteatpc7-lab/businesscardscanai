@@ -135,7 +135,7 @@ class Workspace extends Model
     public static function canManageRole(string $actorRole, string $targetRole): bool
     {
         if ($actorRole === 'owner') {
-            return in_array($targetRole, ['admin', 'member'], true);
+            return in_array($targetRole, ['owner', 'admin', 'member'], true);
         }
 
         if ($actorRole === 'admin') {
@@ -143,6 +143,22 @@ class Workspace extends Model
         }
 
         return false;
+    }
+
+    /**
+     * Determine if an actor role can view team members and pending invitations.
+     */
+    public static function canViewTeam(string $actorRole): bool
+    {
+        return in_array($actorRole, ['owner', 'admin'], true);
+    }
+
+    /**
+     * Determine if an actor role can manage workspace settings.
+     */
+    public static function canManageSettings(string $actorRole): bool
+    {
+        return in_array($actorRole, ['owner', 'admin'], true);
     }
 
     /**

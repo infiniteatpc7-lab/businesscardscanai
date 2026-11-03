@@ -84,6 +84,7 @@ class WorkspaceController extends Controller
 
     /**
      * List members and pending invitations for a specific workspace.
+     * Restricted strictly to Workspace Owners and Admins.
      */
     public function members(Request $request, int $workspaceId): JsonResponse
     {
@@ -97,6 +98,15 @@ class WorkspaceController extends Controller
             ], 403);
         }
 
+        $actorRole = $workspace->getUserRole($user);
+
+        if (! Workspace::canViewTeam($actorRole)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Only workspace owners and admins can view team members.',
+            ], 403);
+        }
+
         $members = $workspace->users()->get()->map(function (User $u) {
             return [
                 'id' => $u->id,
@@ -107,24 +117,29 @@ class WorkspaceController extends Controller
             ];
         });
 
-        $invitations = $workspace->invitations()
+        $invitationsQuery = $workspace->invitations()
             ->whereNull('accepted_at')
-            ->with('inviter:id,name,email')
-            ->get()
-            ->map(function (WorkspaceInvitation $inv) {
-                return [
-                    'id' => $inv->id,
-                    'email' => $inv->email,
-                    'role' => $inv->role,
-                    'inviter' => [
-                        'name' => $inv->inviter?->name ?? 'Team Member',
-                        'email' => $inv->inviter?->email,
-                    ],
-                    'expires_at' => $inv->expires_at?->toISOString(),
-                    'is_expired' => $inv->isExpired(),
-                    'created_at' => $inv->created_at?->toISOString(),
-                ];
-            });
+            ->with('inviter:id,name,email');
+
+        // Admins can only view and manage Member invitations
+        if ($actorRole === 'admin') {
+            $invitationsQuery->where('role', 'member');
+        }
+
+        $invitations = $invitationsQuery->get()->map(function (WorkspaceInvitation $inv) {
+            return [
+                'id' => $inv->id,
+                'email' => $inv->email,
+                'role' => $inv->role,
+                'inviter' => [
+                    'name' => $inv->inviter?->name ?? 'Team Member',
+                    'email' => $inv->inviter?->email,
+                ],
+                'expires_at' => $inv->expires_at?->toISOString(),
+                'is_expired' => $inv->isExpired(),
+                'created_at' => $inv->created_at?->toISOString(),
+            ];
+        });
 
         return response()->json([
             'success' => true,
@@ -357,6 +372,7 @@ class WorkspaceController extends Controller
     /**
      * Accept an invitation using the plaintext token.
      * The authenticated user's email MUST strictly match the invitation email.
+     * Prevents race conditions, duplicate acceptance, and role overwriting.
      */
     public function acceptInvitation(Request $request, string $token): JsonResponse
     {
@@ -401,33 +417,90 @@ class WorkspaceController extends Controller
             ], 404);
         }
 
-        // Prevent duplicate acceptance using atomic database lock & transaction
-        DB::transaction(function () use ($invitation, $workspace, $user) {
-            /** @var WorkspaceInvitation $locked */
+        // Check if user is already an active member before transaction
+        if ($workspace->hasUser($user)) {
+            return response()->json([
+                'success' => false,
+                'message' => "You are already a member of {$workspace->name}. Your existing role will not be changed.",
+            ], 422);
+        }
+
+        // Atomic transaction with row locking
+        $result = DB::transaction(function () use ($invitation, $workspace, $user) {
+            /** @var WorkspaceInvitation|null $locked */
             $locked = WorkspaceInvitation::where('id', $invitation->id)->lockForUpdate()->first();
 
-            if (! $locked || $locked->accepted_at !== null) {
-                return;
+            if (! $locked) {
+                return ['status' => 'not_found'];
             }
 
-            if (! $workspace->hasUser($user)) {
-                $workspace->users()->attach($user->id, ['role' => $locked->role]);
-            } else {
-                $workspace->users()->updateExistingPivot($user->id, ['role' => $locked->role]);
+            if ($locked->accepted_at !== null) {
+                return ['status' => 'already_accepted'];
             }
 
+            if ($locked->isExpired()) {
+                return ['status' => 'expired'];
+            }
+
+            // Double check membership inside row lock to eliminate race conditions
+            if ($workspace->users()->where('users.id', $user->id)->exists()) {
+                return ['status' => 'already_member'];
+            }
+
+            // Attach user with invited role
+            $workspace->users()->attach($user->id, ['role' => $locked->role]);
+
+            // Mark invitation accepted
             $locked->markAccepted();
+
+            // Switch to accepted workspace
             $user->forceFill(['current_workspace_id' => $workspace->id])->save();
+
+            return [
+                'status' => 'success',
+                'role' => $locked->role,
+                'workspace_id' => $workspace->id,
+                'workspace_name' => $workspace->name,
+                'workspace_slug' => $workspace->slug,
+            ];
         });
+
+        if ($result['status'] === 'already_accepted') {
+            return response()->json([
+                'success' => false,
+                'message' => 'This invitation has already been accepted.',
+            ], 410);
+        }
+
+        if ($result['status'] === 'expired') {
+            return response()->json([
+                'success' => false,
+                'message' => 'This invitation has expired. Please ask the inviter to resend it.',
+            ], 410);
+        }
+
+        if ($result['status'] === 'already_member') {
+            return response()->json([
+                'success' => false,
+                'message' => "You are already a member of {$workspace->name}. Your existing role will not be changed.",
+            ], 422);
+        }
+
+        if ($result['status'] !== 'success') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Could not accept invitation.',
+            ], 400);
+        }
 
         return response()->json([
             'success' => true,
-            'message' => "Successfully joined {$workspace->name} as {$invitation->role}.",
+            'message' => "Successfully joined {$result['workspace_name']} as {$result['role']}.",
             'workspace' => [
-                'id' => $workspace->id,
-                'name' => $workspace->name,
-                'slug' => $workspace->slug,
-                'role' => $invitation->role,
+                'id' => $result['workspace_id'],
+                'name' => $result['workspace_name'],
+                'slug' => $result['workspace_slug'],
+                'role' => $result['role'],
             ],
         ]);
     }
@@ -452,6 +525,14 @@ class WorkspaceController extends Controller
         }
 
         $actorRole = $workspace->getUserRole($actor);
+
+        if ($actorRole === 'member') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Members cannot manage member roles.',
+            ], 403);
+        }
+
         $targetUser = User::find($userId);
 
         if (! $targetUser || ! $workspace->hasUser($targetUser)) {
@@ -463,7 +544,15 @@ class WorkspaceController extends Controller
 
         $targetCurrentRole = $workspace->getUserRole($targetUser);
 
-        // Never allow demoting the sole owner
+        // 1. Admins and Members cannot modify an Owner
+        if ($targetCurrentRole === 'owner' && $actorRole !== 'owner') {
+            return response()->json([
+                'success' => false,
+                'message' => "Your role ({$actorRole}) cannot modify a {$targetCurrentRole}.",
+            ], 403);
+        }
+
+        // 2. Demoting the sole owner is blocked
         if ($targetCurrentRole === 'owner' && $workspace->isSoleOwner($targetUser)) {
             return response()->json([
                 'success' => false,
@@ -471,7 +560,15 @@ class WorkspaceController extends Controller
             ], 422);
         }
 
-        // Check if actor has permission to manage target's current role
+        // 3. Prevent self-role modification (self-promotion or self-demotion)
+        if ($actor->id === $targetUser->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You cannot change your own role.',
+            ], 403);
+        }
+
+        // 4. Check if actor has permission to manage target's current role
         if (! Workspace::canManageRole($actorRole, $targetCurrentRole)) {
             return response()->json([
                 'success' => false,
@@ -479,7 +576,7 @@ class WorkspaceController extends Controller
             ], 403);
         }
 
-        // Check if actor has permission to assign target new role
+        // 5. Check if actor has permission to assign target new role
         if (! Workspace::canInviteRole($actorRole, $validated['role'])) {
             return response()->json([
                 'success' => false,
@@ -487,7 +584,18 @@ class WorkspaceController extends Controller
             ], 403);
         }
 
-        $workspace->users()->updateExistingPivot($targetUser->id, ['role' => $validated['role']]);
+        $updateResult = DB::transaction(function () use ($workspace, $targetUser, $validated) {
+            $workspace->users()->updateExistingPivot($targetUser->id, ['role' => $validated['role']]);
+
+            return ['success' => true];
+        });
+
+        if (! $updateResult['success']) {
+            return response()->json([
+                'success' => false,
+                'message' => $updateResult['message'],
+            ], $updateResult['status']);
+        }
 
         return response()->json([
             'success' => true,
@@ -527,8 +635,17 @@ class WorkspaceController extends Controller
         }
 
         $targetRole = $workspace->getUserRole($targetUser);
+        $isSelfLeaving = $actor->id === $targetUser->id;
 
-        // Disallow removing sole owner
+        // 1. Admins and Members cannot remove an Owner
+        if ($targetRole === 'owner' && $actorRole !== 'owner') {
+            return response()->json([
+                'success' => false,
+                'message' => "Your role ({$actorRole}) does not have permission to remove a {$targetRole}.",
+            ], 403);
+        }
+
+        // 2. Disallow removing sole owner (even if the sole owner attempts self-removal/leaving)
         if ($targetRole === 'owner' && $workspace->isSoleOwner($targetUser)) {
             return response()->json([
                 'success' => false,
@@ -536,10 +653,23 @@ class WorkspaceController extends Controller
             ], 422);
         }
 
-        // Check permissions: Owner can remove Admin/Member; Admin can remove Member; Member cannot remove anyone
-        // Exception: A user can leave a workspace themselves unless they are the sole owner
-        $isSelfLeaving = $actor->id === $targetUser->id;
+        // 3. Members cannot remove other members
+        if ($actorRole === 'member' && ! $isSelfLeaving) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Members cannot remove other members.',
+            ], 403);
+        }
 
+        // 4. Admins cannot remove other Admins
+        if ($actorRole === 'admin' && ! $isSelfLeaving && $targetRole !== 'member') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Admins can only remove Members.',
+            ], 403);
+        }
+
+        // 5. If an actor is attempting to remove someone else, check role management authorization
         if (! $isSelfLeaving && ! Workspace::canManageRole($actorRole, $targetRole)) {
             return response()->json([
                 'success' => false,
