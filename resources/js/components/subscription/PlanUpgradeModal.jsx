@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
     X,
@@ -10,9 +10,49 @@ import {
     FileSpreadsheet,
     Zap,
     Layers,
-    Shield,
-    Lock
+    Lock,
+    ChevronLeft,
+    ChevronRight,
+    Building2,
+    Users
 } from 'lucide-react';
+
+const UPGRADE_PLANS = [
+    {
+        id: 'pro',
+        name: 'Growth Pro Plan',
+        badge: 'Recommended',
+        badgeColor: 'text-amber-700 bg-amber-50 border border-amber-200/80',
+        price: '₹999',
+        interval: '/ month',
+        scans: '500 monthly business card scans',
+        features: [
+            '500 monthly business card scans',
+            'CSV & Excel Directory Export',
+            'Bulk Multi-Card Photo Import',
+            'Gujarati, Hindi & English High-Accuracy OCR',
+            'Priority WhatsApp Support',
+        ],
+        whatsappPlanName: 'Growth Pro Plan (₹999)'
+    },
+    {
+        id: 'business',
+        name: 'Business Enterprise',
+        badge: 'High Volume Booths',
+        badgeColor: 'text-emerald-700 bg-emerald-50 border border-emerald-200/80',
+        price: '₹2,999',
+        interval: '/ month',
+        scans: '2,500 monthly business card scans',
+        features: [
+            '2,500 monthly business card scans',
+            'Unlimited Team Members & Booth Staff',
+            'CSV, Excel & Full Directory Exports',
+            'High-Speed Bulk Batch Processing',
+            'Dedicated Account Manager on WhatsApp',
+        ],
+        whatsappPlanName: 'Business Enterprise Plan (₹2,999)'
+    }
+];
 
 export default function PlanUpgradeModal({
     isOpen,
@@ -26,6 +66,9 @@ export default function PlanUpgradeModal({
 }) {
     if (!isOpen) return null;
 
+    const [activePlanIndex, setActivePlanIndex] = useState(0);
+    const carouselRef = useRef(null);
+
     const workspaceName = workspace?.name || 'My Workspace';
     const currentPlanName = workspace?.plan_name || 'Free';
 
@@ -35,37 +78,37 @@ export default function PlanUpgradeModal({
             title: 'Export to CSV & Excel',
             icon: FileSpreadsheet,
             description: 'Download your contacts into clean CSV and Excel files for your CRM and team follow-ups.',
-            whatsappText: `Hello! I would like to upgrade my workspace "${workspaceName}" to Pro to unlock CSV and Excel contact export.`
+            reasonText: 'to unlock CSV and Excel contact export'
         },
         export_excel: {
             title: 'Excel Workbook Export',
             icon: FileSpreadsheet,
             description: 'Export structured spreadsheets compatible with Microsoft Excel and Google Sheets.',
-            whatsappText: `Hello! I would like to upgrade my workspace "${workspaceName}" to Pro to unlock Excel export.`
+            reasonText: 'to unlock Excel export'
         },
         bulk_import: {
             title: 'Bulk Multi-Card Import',
             icon: Layers,
             description: 'Upload up to 50 business card photos at once and let our batch processor extract all contacts automatically.',
-            whatsappText: `Hello! I would like to upgrade my workspace "${workspaceName}" to Pro to unlock Bulk Multi-Card Import.`
+            reasonText: 'to unlock Bulk Multi-Card Import'
         },
         reverse_card_scan: {
             title: 'Back-of-Card Capture',
             icon: Layers,
             description: 'Capture the reverse side of business cards to preserve handwritten booth notes and price lists.',
-            whatsappText: `Hello! I would like to upgrade my workspace "${workspaceName}" to Pro to unlock reverse-card capture.`
+            reasonText: 'to unlock reverse-card capture'
         },
         quota_exceeded: {
             title: 'Monthly Scan Limit Reached (5/5)',
             icon: Zap,
-            description: 'You have used all 5 free card scans for this cycle. Upgrade to Pro for 500 scans/month and never pause scanning at the expo booth.',
-            whatsappText: `Hello! I have reached my 5-card free limit on workspace "${workspaceName}" and would like to upgrade to Pro for 500 scans.`
+            description: 'You have used all 5 free card scans for this cycle. Upgrade for higher monthly scans and never pause scanning at the expo booth.',
+            reasonText: 'to increase my scan allowance'
         },
         on_load: {
-            title: 'Upgrade to BusinessCardScan Pro',
+            title: 'Upgrade Your Scanner Workspace',
             icon: Sparkles,
-            description: 'Get 500 card scans every month, CSV/Excel directory export, and bulk multi-photo scanning.',
-            whatsappText: `Hello! I would like to upgrade my workspace "${workspaceName}" from Free to the Pro plan.`
+            description: 'Unlock 500+ monthly card scans, CSV/Excel directory export, and bulk multi-photo scanning.',
+            reasonText: 'to upgrade my workspace'
         }
     };
 
@@ -79,11 +122,37 @@ export default function PlanUpgradeModal({
             title: featureName ? `Unlock ${featureName}` : 'Premium Feature',
             icon: Lock,
             description: message || 'This feature is available on Pro and Business subscription plans.',
-            whatsappText: `Hello! I would like to upgrade my workspace "${workspaceName}" to unlock ${featureName || 'premium features'}.`
+            reasonText: `to unlock ${featureName || 'premium features'}`
         };
 
     const Icon = resolvedMeta.icon;
-    const whatsappUrl = `https://wa.me/919727509762?text=${encodeURIComponent(resolvedMeta.whatsappText)}`;
+    const selectedPlan = UPGRADE_PLANS[activePlanIndex] || UPGRADE_PLANS[0];
+
+    const whatsappMessage = `Hello! I would like to upgrade my workspace "${workspaceName}" to the ${selectedPlan.whatsappPlanName} ${resolvedMeta.reasonText}.`;
+    const whatsappUrl = `https://wa.me/919727509762?text=${encodeURIComponent(whatsappMessage)}`;
+
+    // Handle scroll snapping detection
+    const handleScroll = () => {
+        if (!carouselRef.current) return;
+        const scrollLeft = carouselRef.current.scrollLeft;
+        const cardWidth = carouselRef.current.offsetWidth;
+        if (cardWidth > 0) {
+            const index = Math.round(scrollLeft / cardWidth);
+            if (index !== activePlanIndex && index >= 0 && index < UPGRADE_PLANS.length) {
+                setActivePlanIndex(index);
+            }
+        }
+    };
+
+    const scrollToPlan = (index) => {
+        if (!carouselRef.current) return;
+        const cardWidth = carouselRef.current.offsetWidth;
+        carouselRef.current.scrollTo({
+            left: index * cardWidth,
+            behavior: 'smooth'
+        });
+        setActivePlanIndex(index);
+    };
 
     return createPortal(
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
@@ -91,7 +160,7 @@ export default function PlanUpgradeModal({
             <div className="fixed inset-0 -z-10" onClick={onClose} />
 
             {/* Modal Card - Clean Native Mobile Sheet */}
-            <div className="relative bg-white rounded-t-[32px] sm:rounded-3xl w-full max-w-md shadow-2xl z-10 max-h-[92vh] flex flex-col overflow-hidden animate-tab-fade border border-black/[0.04]">
+            <div className="relative bg-white rounded-t-[32px] sm:rounded-3xl w-full max-w-md shadow-2xl z-10 max-h-[94vh] flex flex-col overflow-hidden animate-tab-fade border border-black/[0.04]">
                 
                 {/* Mobile Drag Indicator */}
                 <div
@@ -99,8 +168,8 @@ export default function PlanUpgradeModal({
                     className="w-10 h-1 bg-zinc-300 rounded-full mx-auto sm:hidden mt-3 cursor-pointer shrink-0"
                 />
 
-                {/* Top Close Button */}
-                <div className="flex items-center justify-between p-5 pb-2">
+                {/* Top Header */}
+                <div className="flex items-center justify-between p-5 pb-1">
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-700">
                         {currentPlanName} Plan
                     </span>
@@ -113,82 +182,120 @@ export default function PlanUpgradeModal({
                 </div>
 
                 {/* Modal Body */}
-                <div className="p-5 pt-1 space-y-4 overflow-y-auto">
+                <div className="p-5 pt-1 space-y-3.5 overflow-y-auto">
                     {/* Header Icon & Title */}
-                    <div className="text-center space-y-2 pt-1">
-                        <div className="w-14 h-14 rounded-2xl bg-zinc-950 text-white flex items-center justify-center mx-auto shadow-md">
-                            <Icon className="w-7 h-7 text-amber-400" />
+                    <div className="text-center space-y-1.5 pt-0.5">
+                        <div className="w-12 h-12 rounded-2xl bg-zinc-950 text-white flex items-center justify-center mx-auto shadow-md">
+                            <Icon className="w-6 h-6 text-amber-400" />
                         </div>
-                        <h3 className="text-lg font-extrabold text-zinc-950 tracking-tight leading-snug">
+                        <h3 className="text-base font-extrabold text-zinc-950 tracking-tight leading-snug">
                             {resolvedMeta.title}
                         </h3>
-                        <p className="text-xs text-zinc-500 font-medium leading-relaxed max-w-sm mx-auto">
+                        <p className="text-[11px] text-zinc-500 font-medium leading-relaxed max-w-xs mx-auto">
                             {resolvedMeta.description}
                         </p>
                     </div>
 
-                    {/* Pro Plan Value Card */}
-                    <div className="p-4 rounded-3xl bg-zinc-50 border border-zinc-200/80 space-y-3">
-                        <div className="flex items-center justify-between pb-2 border-b border-zinc-200/60">
-                            <div>
-                                <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider block">
-                                    Recommended
-                                </span>
-                                <h4 className="text-base font-extrabold text-zinc-950">
-                                    Growth Pro Plan
-                                </h4>
-                            </div>
-                            <div className="text-right">
-                                <span className="text-lg font-black text-zinc-950">₹999</span>
-                                <span className="text-[10px] text-zinc-500 block">/ month</span>
-                            </div>
+                    {/* Swipeable Plan Cards Carousel */}
+                    <div className="relative">
+                        <div
+                            ref={carouselRef}
+                            onScroll={handleScroll}
+                            className="flex overflow-x-auto snap-x snap-mandatory scrollbar-none scroll-smooth -mx-1 px-1 py-0.5"
+                            style={{ scrollSnapType: 'x mandatory' }}
+                        >
+                            {UPGRADE_PLANS.map((plan, idx) => (
+                                <div
+                                    key={plan.id}
+                                    className="min-w-full snap-center px-1"
+                                >
+                                    <div className="p-4 rounded-3xl bg-zinc-50 border border-zinc-200/80 shadow-xs space-y-3">
+                                        <div className="flex items-start justify-between pb-2 border-b border-zinc-200/60">
+                                            <div>
+                                                <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full inline-block mb-1 ${plan.badgeColor}`}>
+                                                    {plan.badge}
+                                                </span>
+                                                <h4 className="text-base font-extrabold text-zinc-950">
+                                                    {plan.name}
+                                                </h4>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="text-lg font-black text-zinc-950">{plan.price}</span>
+                                                <span className="text-[10px] text-zinc-500 block">{plan.interval}</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Feature Checklist */}
+                                        <div className="space-y-1.5 text-xs text-zinc-700">
+                                            {plan.features.map((feat, fIdx) => (
+                                                <div key={fIdx} className="flex items-center gap-2">
+                                                    <div className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                                                        <Check className="w-2.5 h-2.5 stroke-[3]" />
+                                                    </div>
+                                                    <span className={fIdx === 0 ? 'font-bold text-zinc-950' : 'text-zinc-600 font-medium'}>
+                                                        {feat}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
 
-                        {/* Feature Checklist */}
-                        <div className="space-y-2 text-xs text-zinc-700">
-                            <div className="flex items-center gap-2">
-                                <div className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                                    <Check className="w-2.5 h-2.5 stroke-[3]" />
-                                </div>
-                                <span className="font-semibold text-zinc-900">500 monthly business card scans</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <div className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                                    <Check className="w-2.5 h-2.5 stroke-[3]" />
-                                </div>
-                                <span>CSV & Excel Directory Export</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <div className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                                    <Check className="w-2.5 h-2.5 stroke-[3]" />
-                                </div>
-                                <span>Bulk Multi-Card Photo Import</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <div className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                                    <Check className="w-2.5 h-2.5 stroke-[3]" />
-                                </div>
-                                <span>Gujarati, Hindi & English High-Accuracy OCR</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <div className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                                    <Check className="w-2.5 h-2.5 stroke-[3]" />
-                                </div>
-                                <span>Priority WhatsApp Support</span>
-                            </div>
-                        </div>
+                        {/* Prev / Next Chevrons for desktop & easy tap */}
+                        {activePlanIndex > 0 && (
+                            <button
+                                type="button"
+                                onClick={() => scrollToPlan(activePlanIndex - 1)}
+                                className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/90 shadow-md border border-zinc-200/80 flex items-center justify-center text-zinc-700 hover:bg-white active:scale-90"
+                            >
+                                <ChevronLeft className="w-4 h-4" />
+                            </button>
+                        )}
+                        {activePlanIndex < UPGRADE_PLANS.length - 1 && (
+                            <button
+                                type="button"
+                                onClick={() => scrollToPlan(activePlanIndex + 1)}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/90 shadow-md border border-zinc-200/80 flex items-center justify-center text-zinc-700 hover:bg-white active:scale-90"
+                            >
+                                <ChevronRight className="w-4 h-4" />
+                            </button>
+                        )}
                     </div>
 
-                    {/* Action Buttons */}
+                    {/* Pagination Dots with Swipe Hint */}
+                    <div className="flex items-center justify-between px-2 pt-0.5 text-[10px] text-zinc-400 font-semibold">
+                        <span>Swipe to compare</span>
+                        <div className="flex items-center gap-1.5">
+                            {UPGRADE_PLANS.map((p, idx) => (
+                                <button
+                                    key={p.id}
+                                    type="button"
+                                    onClick={() => scrollToPlan(idx)}
+                                    className={`h-1.5 transition-all rounded-full ${
+                                        activePlanIndex === idx
+                                            ? 'w-5 bg-zinc-950'
+                                            : 'w-1.5 bg-zinc-300 hover:bg-zinc-400'
+                                    }`}
+                                />
+                            ))}
+                        </div>
+                        <span className="font-mono">{activePlanIndex + 1} / {UPGRADE_PLANS.length}</span>
+                    </div>
+
+                    {/* Dynamic Action Buttons */}
                     <div className="space-y-2 pt-1">
                         <a
                             href={whatsappUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="w-full py-3.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm"
+                            className="w-full py-3 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm"
                         >
                             <MessageCircle className="w-4 h-4" />
-                            <span>Upgrade to Pro via WhatsApp</span>
+                            <span>
+                                Upgrade to {activePlanIndex === 0 ? 'Pro' : 'Business'} via WhatsApp
+                            </span>
                         </a>
 
                         <div className="grid grid-cols-2 gap-2">
@@ -214,7 +321,7 @@ export default function PlanUpgradeModal({
                     </div>
 
                     {/* Dismiss Link */}
-                    <div className="text-center pt-1">
+                    <div className="text-center pt-0.5">
                         <button
                             type="button"
                             onClick={onClose}
