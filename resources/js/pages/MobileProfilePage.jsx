@@ -178,8 +178,8 @@ export default function MobileProfilePage({
                         <CreditCard className="w-4 h-4 text-zinc-800" />
                         <h4 className="text-xs font-bold text-zinc-950">Subscription & Scan Quota</h4>
                     </div>
-                    <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        {workspace?.plan_name || 'Active Plan'}
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-700">
+                        {workspace?.plan_name || 'Free'}
                     </span>
                 </div>
 

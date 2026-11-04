@@ -68,6 +68,7 @@ class AuthController extends Controller
                 'name' => $result['workspace']->name,
                 'slug' => $result['workspace']->slug,
                 'role' => 'owner',
+                'plan_name' => 'Free',
             ],
         ], 201);
     }
@@ -111,6 +112,7 @@ class AuthController extends Controller
                 'name' => $workspace->name,
                 'slug' => $workspace->slug,
                 'role' => $workspace->getUserRole($user),
+                'plan_name' => $workspace->activeSubscription()?->plan?->name ?? 'Free',
             ] : null,
         ]);
     }
@@ -167,6 +169,7 @@ class AuthController extends Controller
                 'name' => $workspace->name,
                 'slug' => $workspace->slug,
                 'role' => $role,
+                'plan_name' => $workspace->activeSubscription()?->plan?->name ?? 'Free',
             ],
             'workspaces' => $allWorkspaces,
         ]);
@@ -200,6 +203,7 @@ class AuthController extends Controller
                 'name' => $workspace->name,
                 'slug' => $workspace->slug,
                 'role' => $workspace->getUserRole($user),
+                'plan_name' => $workspace->activeSubscription()?->plan?->name ?? 'Free',
             ],
         ]);
     }

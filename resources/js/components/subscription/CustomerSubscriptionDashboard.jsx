@@ -226,8 +226,8 @@ export default function CustomerSubscriptionDashboard({
                                 <h3 className="text-base font-extrabold text-zinc-950 leading-tight">
                                     Subscription & Credits
                                 </h3>
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                    {currentPlan?.name || 'Active'}
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-700">
+                                    {currentPlan?.name || 'Free'}
                                 </span>
                             </div>
                             <p className="text-xs text-zinc-500 font-medium">
