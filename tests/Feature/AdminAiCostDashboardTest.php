@@ -2,17 +2,21 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\CardController;
 use App\Models\AiApiRequest;
 use App\Models\AiApiUsageDetail;
 use App\Models\ApiToken;
+use App\Models\Plan;
 use App\Models\PlatformAdmin;
 use App\Models\PlatformAdminToken;
 use App\Models\User;
 use App\Models\Workspace;
 use Database\Seeders\AiPricingSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -528,5 +532,130 @@ class AdminAiCostDashboardTest extends TestCase
 
         // Rate for gemini-3.5-flash 2026-v2 input is $1.50/M -> 100k tokens = $0.150000
         $this->assertEquals('0.150000', $res->json('request.cost_usd'));
+    }
+
+    /**
+     * Test 13: End-to-end verification - fresh card scan records AI request and appears in admin dashboard API.
+     */
+    public function test_13_fresh_scan_end_to_end_appears_in_platform_admin_ai_cost_dashboard(): void
+    {
+        Storage::fake('public');
+        $admin = $this->createPlatformAdmin();
+        $customer = $this->createCustomer();
+
+        // Ensure customer workspace has active subscription with scan allowance
+        $plan = Plan::firstOrCreate(
+            ['slug' => 'starter-allowance'],
+            [
+                'name' => 'Starter Plan',
+                'price' => 0.00,
+                'monthly_scan_allowance' => 10,
+                'features' => ['single_card_scan'],
+                'is_active' => true,
+            ]
+        );
+        $subscription = $customer['workspace']->activeSubscription();
+        $subscription->update([
+            'plan_id' => $plan->id,
+            'status' => 'active',
+            'current_period_starts_at' => now()->startOfMonth(),
+            'current_period_ends_at' => now()->endOfMonth(),
+        ]);
+
+        // Mock Gemini curl execution with realistic usage metadata
+        CardController::$curlHandler = function () {
+            return [
+                'response' => json_encode([
+                    'candidates' => [
+                        [
+                            'content' => [
+                                'parts' => [
+                                    [
+                                        'text' => json_encode([
+                                            'company' => 'Acme Global Innovations',
+                                            'name' => 'Jane Smith',
+                                            'designation' => 'Chief Technology Officer',
+                                            'phone' => ['+1-555-0199'],
+                                            'email' => 'jane.smith@acmeglobal.com',
+                                            'accuracy_score' => 98,
+                                        ]),
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                    'usageMetadata' => [
+                        'promptTokenCount' => 1250,
+                        'candidatesTokenCount' => 380,
+                        'totalTokenCount' => 1630,
+                        'cachedContentTokenCount' => 0,
+                        'thoughtsTokenCount' => 0,
+                    ],
+                ]),
+                'http_code' => 200,
+                'error' => null,
+            ];
+        };
+
+        // 1. Customer initiates a fresh scan via POST /api/scan
+        $scanResponse = $this->withHeader('Authorization', 'Bearer '.$customer['token'])
+            ->post('/api/scan', [
+                'image' => UploadedFile::fake()->image('business_card.jpg', 1000, 600),
+            ]);
+
+        $scanResponse->assertStatus(200)
+            ->assertJson([
+                'success' => true,
+                'data' => [
+                    'company' => 'Acme Global Innovations',
+                    'name' => 'Jane Smith',
+                ],
+            ]);
+
+        $idempotencyKey = $scanResponse->json('data.scan_idempotency_key');
+        $this->assertNotEmpty($idempotencyKey);
+
+        // 2. Verify an ai_api_requests record was inserted into the database
+        $this->assertDatabaseHas('ai_api_requests', [
+            'scan_type' => 'single_scan',
+            'workspace_id' => $customer['workspace']->id,
+            'user_id' => $customer['user']->id,
+            'status' => 'success',
+            'http_status' => 200,
+            'prompt_tokens' => 1250,
+            'candidates_tokens' => 380,
+            'total_tokens' => 1630,
+            'cost_calculation_status' => 'calculated',
+        ]);
+
+        $aiRequest = AiApiRequest::where('workspace_id', $customer['workspace']->id)->first();
+        $this->assertNotNull($aiRequest);
+        $this->assertGreaterThan(0, (float) $aiRequest->cost_usd);
+        $this->assertGreaterThan(0, (float) $aiRequest->cost_inr);
+
+        // 3. Platform Admin queries GET /api/platform-admin/ai-costs/requests
+        $adminListRes = $this->withHeader('Authorization', 'Bearer '.$admin['token'])
+            ->getJson('/api/platform-admin/ai-costs/requests');
+
+        $adminListRes->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('pagination.total', 1);
+
+        $item = $adminListRes->json('requests.0');
+        $this->assertEquals($aiRequest->request_uuid, $item['request_uuid']);
+        $this->assertEquals($customer['workspace']->name, $item['workspace']['name']);
+        $this->assertEquals($customer['user']->name, $item['user']['name']);
+        $this->assertEquals('single_scan', $item['scan_type']);
+        $this->assertEquals(1630, $item['total_tokens']);
+        $this->assertEquals('calculated', $item['cost_calculation_status']);
+
+        // 4. Verify the summary payload returned in the same admin requests response
+        $adminListRes->assertJsonPath('summary.total_requests', 1)
+            ->assertJsonPath('summary.successful_requests', 1)
+            ->assertJsonPath('summary.failed_requests', 0)
+            ->assertJsonPath('summary.total_tokens', 1630);
+
+        // Cleanup curl handler
+        CardController::$curlHandler = null;
     }
 }
