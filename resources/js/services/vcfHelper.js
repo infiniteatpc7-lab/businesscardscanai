@@ -134,3 +134,86 @@ export function openWhatsApp(phone, card, expoName = 'Ceramix Expo 2026') {
         window.open(`https://web.whatsapp.com/send?phone=${recipient}&text=${encodedMessage}`, '_blank');
     }
 }
+
+/**
+ * Robust cross-browser clipboard copy with fallback for non-secure HTTP / local IP environments.
+ */
+export function copyToClipboard(text) {
+    if (typeof navigator !== 'undefined' && navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(text);
+    }
+
+    return new Promise((resolve, reject) => {
+        try {
+            if (typeof document === 'undefined') {
+                reject(new Error('Document not available'));
+                return;
+            }
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            textArea.style.top = '-999999px';
+            textArea.setAttribute('readonly', '');
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            const successful = document.execCommand('copy');
+            document.body.removeChild(textArea);
+
+            if (successful) {
+                resolve(true);
+            } else {
+                reject(new Error('execCommand copy returned false'));
+            }
+        } catch (err) {
+            reject(err);
+        }
+    });
+}
+
+/**
+ * Format a business card into clean plain text for universal sharing.
+ */
+export function formatCardShareText(card) {
+    if (!card) return '';
+    const name = card.name || card.name_english || card.company || 'Business Contact';
+    const company = card.company || card.company_english || '';
+    const phoneList = Array.isArray(card.phone) && card.phone.length > 0
+        ? card.phone.join(', ')
+        : (typeof card.phone === 'string' ? card.phone : '');
+    const email = card.email || '';
+    const address = card.address || card.address_english || '';
+    const website = card.website || '';
+    const designation = card.designation || '';
+
+    const lines = [
+        `📇 ${name}`,
+        company && company !== name ? `🏢 Company: ${company}` : '',
+        designation ? `💼 Designation: ${designation}` : '',
+        phoneList ? `📞 Phone: ${phoneList}` : '',
+        email ? `✉️ Email: ${email}` : '',
+        website ? `🌐 Website: ${website}` : '',
+        address ? `📍 Address: ${address}` : '',
+    ].filter(Boolean);
+
+    return lines.join('\n');
+}
+
+/**
+ * Generate a WhatsApp share URL with pre-filled message text.
+ */
+export function getWhatsAppShareUrl(text) {
+    const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const encoded = encodeURIComponent(text);
+    return isMobile
+        ? `whatsapp://send?text=${encoded}`
+        : `https://api.whatsapp.com/send?text=${encoded}`;
+}
+
+/**
+ * Generate a mailto share link.
+ */
+export function getEmailShareUrl(subject, body) {
+    return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}

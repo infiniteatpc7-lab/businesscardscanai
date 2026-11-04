@@ -23,6 +23,7 @@ import {
     Share2
 } from 'lucide-react';
 import SwipeableCardItem from '../components/cards/SwipeableCardItem';
+import ShareCardModal from '../components/cards/ShareCardModal';
 import CardFormEditor from '../components/scanner/CardFormEditor';
 import { downloadVCard, openWhatsApp, isLandlineNumber, initiatePhoneCall } from '../services/vcfHelper';
 import { deleteCard, saveCard, updateCard, getCardImageUrl, fetchCardImageBlob, fetchWorkspaceMembers } from '../services/cardApi';
@@ -50,6 +51,7 @@ export default function MobileCardsPage({
     const [selectedMemberFilter, setSelectedMemberFilter] = useState('all');
     const [workspaceMembers, setWorkspaceMembers] = useState([]);
     const [selectedCard, setSelectedCard] = useState(initialSelectedCard);
+    const [sharingCard, setSharingCard] = useState(null);
     const [cardImageBlobUrl, setCardImageBlobUrl] = useState(null);
     const [backImageBlobUrl, setBackImageBlobUrl] = useState(null);
     const [activeImageTab, setActiveImageTab] = useState('front'); // 'front' | 'back'
@@ -557,6 +559,7 @@ export default function MobileCardsPage({
                             showToast={showToast}
                             isOwnerOrAdmin={isOwnerOrAdmin}
                             onFilterByMember={(id) => setSelectedMemberFilter(String(id))}
+                            onShareCard={(c) => setSharingCard(c)}
                         />
                     ))}
                 </div>
@@ -904,7 +907,7 @@ export default function MobileCardsPage({
                                     )}
 
                                     <button
-                                        onClick={() => handleShareCard(selectedCard)}
+                                        onClick={() => setSharingCard(selectedCard)}
                                         className="py-3 px-2 rounded-2xl bg-zinc-100 hover:bg-zinc-200 text-zinc-900 text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1"
                                         title="Share Card via WhatsApp, Email, etc."
                                     >
@@ -935,6 +938,15 @@ export default function MobileCardsPage({
                     </div>
                 </div>,
                 document.body
+            )}
+
+            {/* Universal Share Sheet Modal */}
+            {sharingCard && (
+                <ShareCardModal
+                    card={sharingCard}
+                    onClose={() => setSharingCard(null)}
+                    showToast={showToast}
+                />
             )}
         </div>
     );

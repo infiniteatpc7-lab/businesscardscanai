@@ -12,7 +12,10 @@ import {
     downloadVCard,
     openWhatsApp,
     isLandlineNumber,
-    initiatePhoneCall
+    initiatePhoneCall,
+    formatCardShareText,
+    copyToClipboard,
+    getWhatsAppShareUrl
 } from '../../services/vcfHelper';
 
 export default function SwipeableCardItem({
@@ -23,6 +26,7 @@ export default function SwipeableCardItem({
     showToast,
     isOwnerOrAdmin = false,
     onFilterByMember,
+    onShareCard,
 }) {
     const [offsetX, setOffsetX] = useState(0);
     const [isSwiping, setIsSwiping] = useState(false);
@@ -56,49 +60,31 @@ export default function SwipeableCardItem({
 
     const handleShareCard = async (e) => {
         e.stopPropagation();
-        const name = card.name || card.company || 'Business Contact';
-        const company = card.company || card.company_english || '';
-        const phone = primaryPhone || '';
-        const email = card.email || '';
-        const address = card.address || '';
-        const website = card.website || '';
+        if (onShareCard) {
+            onShareCard(card);
+            return;
+        }
 
-        const lines = [
-            name,
-            company && company !== name ? `Company: ${company}` : '',
-            card.designation ? `Designation: ${card.designation}` : '',
-            phone ? `Phone: ${phone}` : '',
-            email ? `Email: ${email}` : '',
-            website ? `Website: ${website}` : '',
-            address ? `Address: ${address}` : '',
-        ].filter(Boolean);
+        const shareText = formatCardShareText(card);
 
-        const shareText = lines.join('\n');
-
-        if (navigator.share) {
+        if (typeof navigator !== 'undefined' && navigator.share && window.isSecureContext) {
             try {
                 await navigator.share({
-                    title: name,
+                    title: card.name || card.company || 'Business Contact',
                     text: shareText,
                 });
                 showToast?.('Card shared successfully');
                 return;
             } catch (err) {
-                if (err.name !== 'AbortError') {
-                    if (navigator.clipboard) {
-                        await navigator.clipboard.writeText(shareText);
-                        showToast?.('Contact copied to clipboard');
-                    }
-                }
-                return;
+                if (err.name === 'AbortError') return;
             }
         }
 
-        if (navigator.clipboard) {
-            await navigator.clipboard.writeText(shareText);
+        try {
+            await copyToClipboard(shareText);
             showToast?.('Contact copied to clipboard');
-        } else {
-            showToast?.('Sharing not supported on this browser');
+        } catch (err) {
+            window.open(getWhatsAppShareUrl(shareText), '_blank');
         }
     };
 
