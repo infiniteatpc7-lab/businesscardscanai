@@ -111,6 +111,7 @@ Route::prefix('platform-admin')->group(function () {
         Route::get('/workspaces', [AdminWorkspaceController::class, 'index']);
         Route::get('/workspaces/{id}', [AdminWorkspaceController::class, 'show']);
         Route::get('/workspaces/{id}/subscription', [AdminWorkspaceController::class, 'subscription']);
+        Route::get('/workspaces/{id}/subscription-history', [AdminWorkspaceController::class, 'subscriptionHistory']);
         Route::post('/workspaces/{id}/change-plan', [AdminWorkspaceController::class, 'changePlan']);
         Route::post('/workspaces/{id}/suspend', [AdminWorkspaceController::class, 'suspend']);
         Route::post('/workspaces/{id}/activate', [AdminWorkspaceController::class, 'activate']);

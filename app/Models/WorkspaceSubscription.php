@@ -70,6 +70,22 @@ class WorkspaceSubscription extends Model
     }
 
     /**
+     * Immutable history records for this subscription.
+     */
+    public function histories(): HasMany
+    {
+        return $this->hasMany(WorkspaceSubscriptionHistory::class, 'subscription_id')->latest('id');
+    }
+
+    /**
+     * Payment transactions related to this subscription.
+     */
+    public function paymentTransactions(): HasMany
+    {
+        return $this->hasMany(PaymentTransaction::class, 'subscription_id')->latest('id');
+    }
+
+    /**
      * Determine if subscription is active.
      */
     public function isActive(): bool

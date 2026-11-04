@@ -254,4 +254,20 @@ class Plan extends Model
 
         return $keys;
     }
+
+    /**
+     * Subscription history entries where this plan was assigned.
+     */
+    public function subscriptionHistories(): HasMany
+    {
+        return $this->hasMany(WorkspaceSubscriptionHistory::class, 'plan_id');
+    }
+
+    /**
+     * Payment transactions related to this plan.
+     */
+    public function paymentTransactions(): HasMany
+    {
+        return $this->hasMany(PaymentTransaction::class, 'plan_id');
+    }
 }

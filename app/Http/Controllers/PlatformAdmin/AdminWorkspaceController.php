@@ -8,10 +8,11 @@ use App\Models\PlatformAdmin;
 use App\Models\PlatformAuditLog;
 use App\Models\ScanUsageLedger;
 use App\Models\Workspace;
+use App\Models\WorkspaceSubscriptionHistory;
 use App\Services\ScanQuotaService;
+use App\Services\WorkspaceSubscriptionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class AdminWorkspaceController extends Controller
 {
@@ -256,8 +257,12 @@ class AdminWorkspaceController extends Controller
     /**
      * Manually change or assign a workspace plan.
      */
-    public function changePlan(Request $request, int $id, ScanQuotaService $quotaService): JsonResponse
-    {
+    public function changePlan(
+        Request $request,
+        int $id,
+        ScanQuotaService $quotaService,
+        WorkspaceSubscriptionService $subscriptionService
+    ): JsonResponse {
         /** @var PlatformAdmin $admin */
         $admin = $request->attributes->get('platform_admin');
 
@@ -269,31 +274,12 @@ class AdminWorkspaceController extends Controller
         $workspace = Workspace::findOrFail($id);
         $newPlan = Plan::findOrFail($validated['plan_id']);
 
-        $subscription = DB::transaction(function () use ($workspace, $newPlan, $admin, $validated, $request) {
-            $currentSub = $workspace->activeSubscription();
-            $oldPlanName = $currentSub->plan?->name ?? 'None';
-
-            $currentSub->update([
-                'plan_id' => $newPlan->id,
-                'assignment_source' => 'admin_assigned',
-                'status' => 'active',
-            ]);
-
-            PlatformAuditLog::record(
-                $admin,
-                'workspace.plan_change',
-                $workspace,
-                [
-                    'workspace_name' => $workspace->name,
-                    'old_plan' => $oldPlanName,
-                    'new_plan' => $newPlan->name,
-                    'reason' => $validated['reason'] ?? null,
-                ],
-                $request
-            );
-
-            return $currentSub->fresh(['plan']);
-        });
+        $subscription = $subscriptionService->changePlan($workspace, $newPlan, [
+            'source' => 'admin_assigned',
+            'admin' => $admin,
+            'reason' => $validated['reason'] ?? null,
+            'request' => $request,
+        ]);
 
         $quota = $quotaService->getWorkspaceQuota($workspace->fresh());
 
@@ -303,6 +289,29 @@ class AdminWorkspaceController extends Controller
             'subscription' => $subscription,
             'plan' => $subscription->plan,
             'quota' => $quota,
+        ]);
+    }
+
+    /**
+     * Get immutable subscription history for a workspace.
+     */
+    public function subscriptionHistory(Request $request, int $id): JsonResponse
+    {
+        $workspace = Workspace::findOrFail($id);
+
+        $history = WorkspaceSubscriptionHistory::where('workspace_id', $workspace->id)
+            ->with([
+                'plan:id,name,slug,price,currency',
+                'previousPlan:id,name,slug,price,currency',
+                'assignedByAdmin:id,name,email',
+            ])
+            ->latest('id')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'workspace_id' => $workspace->id,
+            'history' => $history,
         ]);
     }
 }

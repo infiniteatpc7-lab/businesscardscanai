@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\WorkspaceSubscriptionService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -78,23 +79,7 @@ class Workspace extends Model
     protected static function booted(): void
     {
         static::created(function (Workspace $workspace) {
-            $defaultPlan = Plan::getDefaultPlan();
-            if ($defaultPlan) {
-                $now = now();
-                WorkspaceSubscription::firstOrCreate(
-                    [
-                        'workspace_id' => $workspace->id,
-                        'status' => 'active',
-                    ],
-                    [
-                        'plan_id' => $defaultPlan->id,
-                        'started_at' => $now,
-                        'current_period_starts_at' => $now,
-                        'current_period_ends_at' => $now->copy()->addMonth(),
-                        'assignment_source' => 'system_free',
-                    ]
-                );
-            }
+            app(WorkspaceSubscriptionService::class)->assignInitialFreePlan($workspace);
         });
     }
 
@@ -104,6 +89,22 @@ class Workspace extends Model
     public function subscriptions(): HasMany
     {
         return $this->hasMany(WorkspaceSubscription::class);
+    }
+
+    /**
+     * Get all immutable subscription history records for this workspace.
+     */
+    public function subscriptionHistories(): HasMany
+    {
+        return $this->hasMany(WorkspaceSubscriptionHistory::class)->latest('id');
+    }
+
+    /**
+     * Get all payment transactions for this workspace.
+     */
+    public function paymentTransactions(): HasMany
+    {
+        return $this->hasMany(PaymentTransaction::class)->latest('id');
     }
 
     /**
@@ -118,18 +119,7 @@ class Workspace extends Model
             ->first();
 
         if (! $subscription) {
-            $plan = Plan::getDefaultPlan();
-            $now = now();
-            $subscription = WorkspaceSubscription::create([
-                'workspace_id' => $this->id,
-                'plan_id' => $plan ? $plan->id : 1,
-                'status' => 'active',
-                'started_at' => $now,
-                'current_period_starts_at' => $now,
-                'current_period_ends_at' => $now->copy()->addMonth(),
-                'assignment_source' => 'system_free',
-            ]);
-            $subscription->load('plan');
+            $subscription = app(WorkspaceSubscriptionService::class)->assignInitialFreePlan($this);
         }
 
         $subscription->ensureCurrentPeriod();
