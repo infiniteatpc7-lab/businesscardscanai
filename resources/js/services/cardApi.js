@@ -104,6 +104,28 @@ export async function scanCard({ file, base64Url }) {
 }
 
 /**
+ * Release a reserved scan credit upon extraction failure, cancellation or abandoned review.
+ */
+export async function releaseScanReservation(scanIdempotencyKey, reason = 'user_abandoned_review') {
+    if (!scanIdempotencyKey) return { success: false };
+    try {
+        const response = await authFetch('/api/scan/release', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                scan_idempotency_key: scanIdempotencyKey,
+                reason,
+            }),
+        });
+        return await response.json();
+    } catch {
+        return { success: false };
+    }
+}
+
+/**
  * Store a card with duplicate detection.
  */
 export async function saveCard(cardData) {

@@ -21,7 +21,8 @@ import {
     acceptInvitation,
     fetchCurrentExhibition,
     fetchExhibitions,
-    exportCards
+    exportCards,
+    fetchCustomerSubscription
 } from './services/cardApi';
 
 function MobileAppContent() {
@@ -51,6 +52,21 @@ function MobileAppContent() {
         message: null,
     });
     const [isSubscriptionDashboardOpen, setIsSubscriptionDashboardOpen] = useState(false);
+    const [subscriptionQuota, setSubscriptionQuota] = useState(null);
+
+    // Live Quota refresh helper
+    const refreshQuota = async () => {
+        try {
+            const res = await fetchCustomerSubscription();
+            if (res.success && res.quota) {
+                setSubscriptionQuota(res.quota);
+                return res.quota;
+            }
+        } catch (err) {
+            console.error('Failed to refresh quota:', err);
+        }
+        return null;
+    };
 
     // Fetch cards from backend API
     const loadCards = async () => {
@@ -115,6 +131,7 @@ function MobileAppContent() {
                 loadWorkspaces();
                 loadExhibitionState();
                 checkPendingInvite();
+                refreshQuota();
             } else {
                 setAuthUser(null);
                 setAuthWorkspace(null);
@@ -175,9 +192,14 @@ function MobileAppContent() {
 
         window.addEventListener('auth:unauthorized', handleUnauthorized);
         window.addEventListener('plan:upgrade_required', handleUpgradeRequired);
+        const handleQuotaRefresh = () => {
+            refreshQuota();
+        };
+        window.addEventListener('quota:refresh', handleQuotaRefresh);
         return () => {
             window.removeEventListener('auth:unauthorized', handleUnauthorized);
             window.removeEventListener('plan:upgrade_required', handleUpgradeRequired);
+            window.removeEventListener('quota:refresh', handleQuotaRefresh);
         };
     }, []);
 
@@ -209,6 +231,7 @@ function MobileAppContent() {
         loadWorkspaces();
         loadExhibitionState();
         checkPendingInvite();
+        refreshQuota();
         showToast(`Welcome back, ${data.user.name}!`);
     };
 
@@ -217,6 +240,7 @@ function MobileAppContent() {
         loadCards();
         loadWorkspaces();
         loadExhibitionState();
+        refreshQuota();
     };
 
     const handleLogout = async () => {
@@ -231,6 +255,7 @@ function MobileAppContent() {
 
     const handleCardSaved = (savedCard) => {
         loadCards();
+        refreshQuota();
         if (savedCard) {
             setSelectedCardForModal(savedCard);
         }
@@ -368,6 +393,8 @@ function MobileAppContent() {
                                 currentExhibition={currentExhibition}
                                 onOpenExhibitionSelector={() => setIsExhibitionSelectorOpen(true)}
                                 workspace={authWorkspace}
+                                quota={subscriptionQuota}
+                                onQuotaRefresh={refreshQuota}
                             />
                         )}
 
@@ -382,6 +409,8 @@ function MobileAppContent() {
                                 currentExhibition={currentExhibition}
                                 onExhibitionChanged={loadExhibitionState}
                                 onLogout={handleLogout}
+                                quota={subscriptionQuota}
+                                onQuotaRefresh={refreshQuota}
                             />
                         )}
                     </div>

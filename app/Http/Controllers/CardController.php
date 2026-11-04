@@ -6,11 +6,13 @@ use App\Exceptions\QuotaExceededException;
 use App\Models\Card;
 use App\Models\CardScan;
 use App\Models\Exhibition;
+use App\Models\ScanUsageLedger;
 use App\Models\UserSelectedExhibition;
 use App\Models\Workspace;
 use App\Services\CardDuplicateDetector;
 use App\Services\CardImageService;
 use App\Services\ScanQuotaService;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -333,6 +335,28 @@ EOT;
     }
 
     /**
+     * Release a reserved scan credit when a review is cancelled, abandoned, or discarded.
+     */
+    public function releaseScanReservation(Request $request, ScanQuotaService $quotaService): JsonResponse
+    {
+        $validated = $request->validate([
+            'scan_idempotency_key' => 'required|string|max:128',
+            'reason' => 'nullable|string|max:100',
+        ]);
+
+        $ledger = $quotaService->releaseReservation(
+            $validated['scan_idempotency_key'],
+            $validated['reason'] ?? 'user_abandoned_review'
+        );
+
+        return response()->json([
+            'success' => true,
+            'released' => (bool) ($ledger && $ledger->status === 'released'),
+            'message' => 'Scan reservation released successfully.',
+        ]);
+    }
+
+    /**
      * Direct cURL call to Gemini REST API using secure header authentication (x-goog-api-key)
      * and SSL certificate verification.
      */
@@ -539,6 +563,25 @@ EOT;
         // Resolve active target exhibition
         $exhibition = $this->resolveTargetExhibition($validated['exhibition_id'] ?? null, $workspace, $user->id);
 
+        // Idempotency guard: if this exact scan key was already saved and confirmed, return existing card
+        if (! empty($validated['scan_idempotency_key'])) {
+            $existingLedger = ScanUsageLedger::where('idempotency_key', $validated['scan_idempotency_key'])
+                ->where('status', 'confirmed')
+                ->first();
+
+            if ($existingLedger && $existingLedger->card_id) {
+                $alreadySavedCard = Card::forWorkspace($workspace->id)->find($existingLedger->card_id);
+                if ($alreadySavedCard) {
+                    return response()->json([
+                        'success' => true,
+                        'card' => $alreadySavedCard,
+                        'message' => 'Card already saved successfully.',
+                        'idempotent_replay' => true,
+                    ]);
+                }
+            }
+        }
+
         // Case 1: Linking an existing canonical contact to this exhibition with a new scan event
         if (! empty($validated['link_existing_card_id'])) {
             $existingCard = Card::forWorkspace($workspace->id)->find($validated['link_existing_card_id']);
@@ -561,17 +604,26 @@ EOT;
                     ]);
 
                     // Record fresh scan history
-                    $scan = CardScan::create([
-                        'workspace_id' => $workspace->id,
-                        'card_id' => $existingCard->id,
-                        'exhibition_id' => $exhibition->id,
-                        'user_id' => $user->id,
-                        'scanned_at' => now(),
-                        'front_image_path' => $validated['image_path'] ?? $existingCard->image_path,
-                        'back_image_path' => $validated['back_image_path'] ?? $existingCard->back_image_path,
-                        'accuracy_score' => $validated['accuracy_score'] ?? 90,
-                        'notes' => $validated['scan_notes'] ?? null,
-                    ]);
+                    try {
+                        $scan = CardScan::create([
+                            'workspace_id' => $workspace->id,
+                            'card_id' => $existingCard->id,
+                            'exhibition_id' => $exhibition->id,
+                            'user_id' => $user->id,
+                            'scan_idempotency_key' => $scanKey,
+                            'scanned_at' => now(),
+                            'front_image_path' => $validated['image_path'] ?? $existingCard->image_path,
+                            'back_image_path' => $validated['back_image_path'] ?? $existingCard->back_image_path,
+                            'accuracy_score' => $validated['accuracy_score'] ?? 90,
+                            'notes' => $validated['scan_notes'] ?? null,
+                        ]);
+                    } catch (QueryException $qe) {
+                        if ($qe->getCode() == 23000 || str_contains($qe->getMessage(), 'uq_card_scans')) {
+                            $scan = CardScan::where('scan_idempotency_key', $scanKey)->firstOrFail();
+                        } else {
+                            throw $qe;
+                        }
+                    }
 
                     // Deduct or confirm scan credit for linking contact to new exhibition event
                     $quotaService->recordSuccessfulScan(
@@ -696,17 +748,26 @@ EOT;
                 ]);
 
                 // Record atomic scan history
-                $scan = CardScan::create([
-                    'workspace_id' => $workspace->id,
-                    'card_id' => $newCard->id,
-                    'exhibition_id' => $exhibition->id,
-                    'user_id' => $user->id,
-                    'scanned_at' => now(),
-                    'front_image_path' => $cardData['image_path'] ?? null,
-                    'back_image_path' => $cardData['back_image_path'] ?? null,
-                    'accuracy_score' => $cardData['accuracy_score'] ?? 90,
-                    'notes' => $validated['scan_notes'] ?? null,
-                ]);
+                try {
+                    $scan = CardScan::create([
+                        'workspace_id' => $workspace->id,
+                        'card_id' => $newCard->id,
+                        'exhibition_id' => $exhibition->id,
+                        'user_id' => $user->id,
+                        'scan_idempotency_key' => $scanKey,
+                        'scanned_at' => now(),
+                        'front_image_path' => $cardData['image_path'] ?? null,
+                        'back_image_path' => $cardData['back_image_path'] ?? null,
+                        'accuracy_score' => $cardData['accuracy_score'] ?? 90,
+                        'notes' => $validated['scan_notes'] ?? null,
+                    ]);
+                } catch (QueryException $qe) {
+                    if ($qe->getCode() == 23000 || str_contains($qe->getMessage(), 'uq_card_scans')) {
+                        $scan = CardScan::where('scan_idempotency_key', $scanKey)->firstOrFail();
+                    } else {
+                        throw $qe;
+                    }
+                }
 
                 // Deduct or confirm scan credit atomically
                 $quotaService->recordSuccessfulScan(

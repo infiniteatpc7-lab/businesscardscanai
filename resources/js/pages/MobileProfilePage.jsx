@@ -21,6 +21,7 @@ import TeamMembersModal from '../components/workspace/TeamMembersModal';
 import ExhibitionSelectorModal from '../components/exhibition/ExhibitionSelectorModal';
 import ExhibitionManageModal from '../components/exhibition/ExhibitionManageModal';
 import CustomerSubscriptionDashboard from '../components/subscription/CustomerSubscriptionDashboard';
+import { fetchCustomerSubscription } from '../services/cardApi';
 
 export default function MobileProfilePage({
     cardsCount = 0,
@@ -31,13 +32,34 @@ export default function MobileProfilePage({
     onWorkspaceChanged,
     currentExhibition = null,
     onExhibitionChanged,
-    onLogout
+    onLogout,
+    quota = null,
+    onQuotaRefresh = null,
 }) {
     const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
     const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
     const [isExhibitionSelectorOpen, setIsExhibitionSelectorOpen] = useState(false);
     const [isExhibitionManageOpen, setIsExhibitionManageOpen] = useState(false);
     const [isSubscriptionDashboardOpen, setIsSubscriptionDashboardOpen] = useState(false);
+    const [localQuota, setLocalQuota] = useState(quota);
+
+    useEffect(() => {
+        if (quota) {
+            setLocalQuota(quota);
+        }
+    }, [quota]);
+
+    useEffect(() => {
+        let isMounted = true;
+        fetchCustomerSubscription().then((res) => {
+            if (isMounted && res?.success && res?.quota) {
+                setLocalQuota(res.quota);
+            }
+        }).catch(() => {});
+        return () => {
+            isMounted = false;
+        };
+    }, [workspace?.id]);
 
     const displayName = user?.name || 'Saunak K.';
     const displayEmail = user?.email || 'booth@ceramix.com';
@@ -46,13 +68,17 @@ export default function MobileProfilePage({
 
     const isOwnerOrAdmin = ['owner', 'admin'].includes((workspace?.role || '').toLowerCase());
 
-    const planAllowance = workspace?.monthly_scan_allowance ?? (workspace?.plan_name === 'Free' || !workspace?.plan_name ? 5 : 500);
-    const isUnlimited = planAllowance === -1;
-    const remainingCards = isUnlimited ? null : Math.max(0, planAllowance - cardsCount);
+    const activeQuota = localQuota || quota;
+    const planAllowance = activeQuota?.monthly_allowance ?? workspace?.monthly_scan_allowance ?? (workspace?.plan_name === 'Free' || !workspace?.plan_name ? 5 : 500);
+    const isUnlimited = activeQuota ? activeQuota.is_unlimited : (planAllowance === -1);
+    const usedCredits = activeQuota?.used_credits ?? 0;
+    const reservedCredits = activeQuota?.reserved_credits ?? 0;
+    const remainingCredits = isUnlimited ? null : (activeQuota ? activeQuota.remaining_credits : Math.max(0, planAllowance - usedCredits));
+
     const progressPercent = isUnlimited
         ? 0
         : planAllowance > 0
-        ? Math.min(100, Math.round((cardsCount / planAllowance) * 100))
+        ? Math.min(100, Math.round((usedCredits / planAllowance) * 100))
         : 0;
 
     // Get initials for avatar
@@ -194,26 +220,33 @@ export default function MobileProfilePage({
 
                 <div className="space-y-1.5">
                     <div className="flex justify-between text-xs font-bold">
-                        <span className="text-zinc-600">Cards in this Workspace</span>
+                        <span className="text-zinc-600">Scan Credits</span>
                         <span className="font-mono text-zinc-950">
-                            {cardsCount}
-                            <span className="text-zinc-400 font-normal"> / {isUnlimited ? '∞' : planAllowance}</span>
+                            {usedCredits}
+                            <span className="text-zinc-400 font-normal"> / {isUnlimited ? '∞' : planAllowance} credits used</span>
                         </span>
                     </div>
                     <div className="w-full h-2 bg-zinc-100 rounded-full overflow-hidden">
                         <div
                             className="h-full bg-black rounded-full transition-all duration-300"
-                            style={{ width: `${cardsCount > 0 ? Math.min(100, Math.max(8, progressPercent)) : 0}%` }}
+                            style={{ width: `${usedCredits > 0 ? Math.min(100, Math.max(8, progressPercent)) : 0}%` }}
                         ></div>
                     </div>
                     <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-1">
                         <span>1 Card = 1 Scan Credit</span>
                         {isUnlimited ? (
                             <span className="text-zinc-600 font-semibold">Unlimited Scans</span>
-                        ) : remainingCards > 0 ? (
-                            <span className="text-zinc-600 font-semibold">{remainingCards} cards remaining</span>
                         ) : (
-                            <span className="text-amber-600 font-bold">Plan limit reached</span>
+                            <div className="flex items-center gap-1.5 font-semibold text-zinc-600">
+                                {reservedCredits > 0 && (
+                                    <span className="text-amber-600 font-medium">
+                                        {reservedCredits} processing ·{' '}
+                                    </span>
+                                )}
+                                <span className={remainingCredits <= 0 ? 'text-amber-600 font-bold' : 'text-zinc-600'}>
+                                    {remainingCredits <= 0 ? '0 credits remaining' : `${remainingCredits} available`}
+                                </span>
+                            </div>
                         )}
                     </div>
                 </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
     ScanLine,
     Languages,
@@ -22,7 +22,7 @@ import CardUploadDropzone from '../components/scanner/CardUploadDropzone';
 import CardFormEditor from '../components/scanner/CardFormEditor';
 import DuplicateWarningModal from '../components/scanner/DuplicateWarningModal';
 import BulkImportView from '../components/scanner/BulkImportView';
-import { scanCard, saveCard, uploadCardImage } from '../services/cardApi';
+import { scanCard, saveCard, uploadCardImage, releaseScanReservation } from '../services/cardApi';
 import { downloadVCard, openWhatsApp, isLandlineNumber, initiatePhoneCall } from '../services/vcfHelper';
 import { useImageProcessor } from '../hooks/useImageProcessor';
 import { useToast } from '../context/ToastContext';
@@ -32,7 +32,9 @@ export default function MobileScannerView({
     onNavigateToCards,
     currentExhibition,
     onOpenExhibitionSelector,
-    workspace = null
+    workspace = null,
+    quota = null,
+    onQuotaRefresh = null,
 }) {
     const { showToast } = useToast();
     const { compressImage } = useImageProcessor();
@@ -55,8 +57,29 @@ export default function MobileScannerView({
     const [isSaving, setIsSaving] = useState(false);
     const [duplicateWarning, setDuplicateWarning] = useState(null);
 
+    const cardDataRef = useRef(null);
+    const isSavedRef = useRef(false);
+
+    useEffect(() => {
+        cardDataRef.current = cardData;
+    }, [cardData]);
+
+    // Cleanup: if review is abandoned by navigating away, release the reservation
+    useEffect(() => {
+        return () => {
+            if (cardDataRef.current?.scan_idempotency_key && !isSavedRef.current) {
+                releaseScanReservation(cardDataRef.current.scan_idempotency_key, 'abandoned_scan');
+                if (onQuotaRefresh) onQuotaRefresh();
+            }
+        };
+    }, []);
+
     // Handle File Selection
     const handleFileSelected = async (file) => {
+        if (cardData?.scan_idempotency_key && !isSavedRef.current) {
+            releaseScanReservation(cardData.scan_idempotency_key, 'replaced_file');
+            if (onQuotaRefresh) onQuotaRefresh();
+        }
         setIsScanning(true);
         setScanError(null);
         setScanProgress('Optimizing card photo...');
@@ -92,6 +115,10 @@ export default function MobileScannerView({
     // Load Sample Gujarati Card
     const handleLoadSample = async () => {
         try {
+            if (cardData?.scan_idempotency_key && !isSavedRef.current) {
+                releaseScanReservation(cardData.scan_idempotency_key, 'load_sample');
+                if (onQuotaRefresh) onQuotaRefresh();
+            }
             setScanError(null);
             setImagePreview('/samples/morbi_depo.jpg');
             setImageFileName('morbi_depo.jpg');
@@ -109,6 +136,10 @@ export default function MobileScannerView({
 
     // Reset scanner
     const handleReset = () => {
+        if (cardData?.scan_idempotency_key && !isSavedRef.current) {
+            releaseScanReservation(cardData.scan_idempotency_key, 'user_reset');
+            if (onQuotaRefresh) onQuotaRefresh();
+        }
         setImagePreview(null);
         setImageFile(null);
         setImageFileName('');
@@ -116,10 +147,15 @@ export default function MobileScannerView({
         setCardData(null);
         setScanError(null);
         setDuplicateWarning(null);
+        isSavedRef.current = false;
     };
 
     // Retry Scan with current file
     const handleRetry = () => {
+        if (cardData?.scan_idempotency_key && !isSavedRef.current) {
+            releaseScanReservation(cardData.scan_idempotency_key, 'retry_scan');
+            if (onQuotaRefresh) onQuotaRefresh();
+        }
         if (imageFile) {
             executeScan(imageFile, imagePreview);
         }
@@ -127,10 +163,31 @@ export default function MobileScannerView({
 
     // Execute Multimodal Scan
     const executeScan = async (file, base64Url = null) => {
+        // Pre-flight quota check: verify available credits BEFORE Gemini API call
+        let currentQuota = quota;
+        if (onQuotaRefresh) {
+            const refreshed = await onQuotaRefresh();
+            if (refreshed) currentQuota = refreshed;
+        }
+
+        if (currentQuota && !currentQuota.is_unlimited && currentQuota.remaining_credits <= 0) {
+            setIsScanning(false);
+            setScanProgress('');
+            window.dispatchEvent(new CustomEvent('plan:upgrade_required', {
+                detail: {
+                    error_code: 'QUOTA_EXCEEDED',
+                    message: `Monthly scan allowance of ${currentQuota.monthly_allowance || 5} credits exceeded for this workspace. Please upgrade your plan to continue scanning.`,
+                    quota: currentQuota,
+                }
+            }));
+            return;
+        }
+
         setIsScanning(true);
         setCardData(null);
         setScanError(null);
         setDuplicateWarning(null);
+        isSavedRef.current = false;
         setScanProgress('Uploading business card...');
 
         const progressSteps = [
@@ -155,11 +212,14 @@ export default function MobileScannerView({
 
             if (result.success && result.data) {
                 setCardData(result.data);
+                isSavedRef.current = false;
                 showToast('Card extracted successfully!', 'success');
+                if (onQuotaRefresh) onQuotaRefresh();
             } else {
                 const errMsg = result.message || 'Scan failed to extract card text. Check lighting & angle.';
                 setScanError(errMsg);
                 showToast(errMsg, 'error');
+                if (onQuotaRefresh) onQuotaRefresh();
             }
         } catch (error) {
             clearInterval(interval);
@@ -167,6 +227,7 @@ export default function MobileScannerView({
             const errMsg = 'Scan connection interrupted. Tap Retry to try again.';
             setScanError(errMsg);
             showToast(errMsg, 'error');
+            if (onQuotaRefresh) onQuotaRefresh();
         } finally {
             setIsScanning(false);
             setScanProgress('');
@@ -202,11 +263,13 @@ export default function MobileScannerView({
                 force_duplicate: forceDuplicate,
                 exhibition_id: currentExhibition?.id || null,
                 link_existing_card_id: linkExistingCardId,
+                scan_idempotency_key: cardData.scan_idempotency_key || null,
             };
 
             const result = await saveCard(payload);
 
             if (result.success) {
+                isSavedRef.current = true;
                 setDuplicateWarning(null);
                 const successMsg = result.linked
                     ? `Contact linked to ${currentExhibition?.name || 'exhibition'}!`
@@ -214,6 +277,7 @@ export default function MobileScannerView({
                     ? 'Card saved as separate contact!'
                     : `Card saved to ${currentExhibition?.name || 'directory'}!`;
                 showToast(successMsg, 'success');
+                if (onQuotaRefresh) onQuotaRefresh();
                 if (onCardSaved) onCardSaved(result.card);
             } else if (result.duplicate || result.status === 409) {
                 // Show Duplicate Warning Modal with existing matches & exhibition linking option

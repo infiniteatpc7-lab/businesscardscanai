@@ -30,6 +30,9 @@ class ScanQuotaService
      */
     public function getWorkspaceQuota(Workspace $workspace): array
     {
+        // Prune any stale reservations older than 15 minutes to prevent stuck quota
+        $this->pruneStaleReservations(15, $workspace->id);
+
         $subscription = $workspace->activeSubscription();
         $subscription->ensureCurrentPeriod();
         $subscription->loadMissing('plan');
@@ -46,11 +49,11 @@ class ScanQuotaService
             ->where('confirmed_at', '<=', $periodEnd)
             ->sum('quantity');
 
-        // Calculate active reservations (ignoring stale reservations older than 60 minutes)
+        // Calculate active reservations (ignoring stale reservations older than 15 minutes)
         $reservedCredits = (int) ScanUsageLedger::where('workspace_id', $workspace->id)
             ->where('subscription_id', $subscription->id)
             ->where('status', 'reserved')
-            ->where('reserved_at', '>=', now()->subMinutes(60))
+            ->where('reserved_at', '>=', now()->subMinutes(15))
             ->where('billing_period_starts_at', '>=', $periodStart->copy()->subHours(2))
             ->sum('quantity');
 
@@ -81,7 +84,7 @@ class ScanQuotaService
             'remaining' => $remainingCredits,
             'period_starts_at' => $periodStart->toIso8601String(),
             'period_ends_at' => $periodEnd->toIso8601String(),
-            'is_exhausted' => $remainingCredits <= 0,
+            'is_exhausted' => ! $isUnlimited && $remainingCredits <= 0,
         ];
     }
 
@@ -100,6 +103,9 @@ class ScanQuotaService
         array $metadata = []
     ): ScanUsageLedger {
         return DB::transaction(function () use ($workspace, $user, $operationType, $idempotencyKey, $quantity, $metadata) {
+            // Prune any stale reservations older than 15 minutes to keep quota accurate
+            $this->pruneStaleReservations(15, $workspace->id);
+
             $subscription = $workspace->activeSubscription();
             $subscription->ensureCurrentPeriod();
 
@@ -131,7 +137,7 @@ class ScanQuotaService
             $reserved = (int) ScanUsageLedger::where('workspace_id', $workspace->id)
                 ->where('subscription_id', $subscription->id)
                 ->where('status', 'reserved')
-                ->where('reserved_at', '>=', now()->subMinutes(60))
+                ->where('reserved_at', '>=', now()->subMinutes(15))
                 ->where('idempotency_key', '!=', $idempotencyKey)
                 ->sum('quantity');
 
@@ -241,6 +247,35 @@ class ScanQuotaService
         ]);
 
         return $ledger;
+    }
+
+    /**
+     * Auto-release stale reservations older than the specified threshold.
+     */
+    public function pruneStaleReservations(int $olderThanMinutes = 15, ?int $workspaceId = null): int
+    {
+        $query = ScanUsageLedger::where('status', 'reserved')
+            ->where('reserved_at', '<', now()->subMinutes($olderThanMinutes));
+
+        if ($workspaceId !== null) {
+            $query->where('workspace_id', $workspaceId);
+        }
+
+        $staleReservations = $query->get();
+        $count = 0;
+
+        foreach ($staleReservations as $stale) {
+            $metadata = $stale->metadata ?? [];
+            $metadata['release_reason'] = 'stale_reservation_timeout';
+            $stale->update([
+                'status' => 'released',
+                'released_at' => now(),
+                'metadata' => $metadata,
+            ]);
+            $count++;
+        }
+
+        return $count;
     }
 
     /**

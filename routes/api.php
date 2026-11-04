@@ -56,6 +56,7 @@ Route::middleware('api.auth')->group(function () {
 // Protected Business Card & AI Scanning Routes
 Route::middleware('api.auth')->group(function () {
     Route::post('/scan', [CardController::class, 'scan'])->middleware('throttle:20,1');
+    Route::post('/scan/release', [CardController::class, 'releaseScanReservation']);
     Route::post('/cards/upload-image', [CardController::class, 'uploadImage'])->middleware('throttle:30,1');
     Route::get('/cards', [CardController::class, 'index']);
     Route::get('/cards/export', [CardController::class, 'export']);

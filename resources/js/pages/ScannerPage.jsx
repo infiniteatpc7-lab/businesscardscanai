@@ -13,7 +13,7 @@ import CardUploadDropzone from '../components/scanner/CardUploadDropzone';
 import CardFormEditor from '../components/scanner/CardFormEditor';
 import JsonViewer from '../components/scanner/JsonViewer';
 import { AccuracyBadge } from '../components/common/Badge';
-import { scanCard, saveCard } from '../services/cardApi';
+import { scanCard, saveCard, releaseScanReservation } from '../services/cardApi';
 import { useImageProcessor } from '../hooks/useImageProcessor';
 import { useToast } from '../context/ToastContext';
 
@@ -59,6 +59,9 @@ export default function ScannerPage({ onCardSaved, onNavigateToContacts }) {
 
     // Reset scanner
     const handleReset = () => {
+        if (cardData?.scan_idempotency_key) {
+            releaseScanReservation(cardData.scan_idempotency_key, 'desktop_reset');
+        }
         setImagePreview(null);
         setImageFile(null);
         setImageFileName('');
@@ -132,6 +135,7 @@ export default function ScannerPage({ onCardSaved, onNavigateToContacts }) {
                 detected_language: cardData.detected_language || 'Gujarati',
                 image_path: cardData.image_path || imagePreview,
                 raw_data: cardData,
+                scan_idempotency_key: cardData.scan_idempotency_key || null,
             };
 
             const result = await saveCard(payload);
