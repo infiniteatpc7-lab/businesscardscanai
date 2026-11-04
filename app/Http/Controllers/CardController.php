@@ -9,6 +9,7 @@ use App\Models\Exhibition;
 use App\Models\ScanUsageLedger;
 use App\Models\UserSelectedExhibition;
 use App\Models\Workspace;
+use App\Services\AiUsageTrackingService;
 use App\Services\CardDuplicateDetector;
 use App\Services\CardImageService;
 use App\Services\ScanQuotaService;
@@ -23,6 +24,11 @@ use Symfony\Component\HttpFoundation\Response;
 
 class CardController extends Controller
 {
+    /**
+     * Optional custom cURL handler for testing.
+     */
+    public static ?\Closure $curlHandler = null;
+
     public function __construct()
     {
         // Ensure system temp directory is set to a writable project path on Windows
@@ -261,13 +267,90 @@ EOT;
 
         $geminiResult = null;
         $lastError = null;
+        $attemptNumber = 0;
+        $firstRequestId = null;
+        $previousModel = null;
+        $previousError = null;
+        $trackingService = app(AiUsageTrackingService::class);
 
         foreach ($modelsToTry as $modelName) {
+            $attemptNumber++;
+            $isFallback = ($attemptNumber > 1);
+            $fallbackReason = $isFallback ? "Fallback from {$previousModel}: {$previousError}" : null;
+
             $geminiResult = $this->callGeminiApiCurl($apiKey, $modelName, $prompt, $mimeType, $base64Data);
+
             if ($geminiResult['success']) {
+                $trackingService->recordAttempt(
+                    scanType: 'single_scan',
+                    requestedModel: $modelName,
+                    actualModel: $modelName,
+                    attemptNumber: $attemptNumber,
+                    isFallback: $isFallback,
+                    fallbackReason: $fallbackReason,
+                    parentRequestId: $firstRequestId,
+                    imageCount: 1,
+                    status: 'success',
+                    httpStatus: $geminiResult['http_status'] ?? 200,
+                    errorCode: null,
+                    errorMessage: null,
+                    startedAt: $geminiResult['started_at'] ?? now(),
+                    completedAt: $geminiResult['completed_at'] ?? now(),
+                    durationMs: $geminiResult['duration_ms'] ?? 0,
+                    usageMetadata: $geminiResult['usage_metadata'] ?? null,
+                    attribution: [
+                        'workspace_id' => $workspace->id,
+                        'workspace_name' => $workspace->name,
+                        'user_id' => $user->id,
+                        'user_name' => $user->name,
+                        'user_email' => $user->email,
+                    ],
+                    references: [
+                        'idempotency_key' => $scanIdempotencyKey,
+                    ]
+                );
                 break;
             }
+
+            // Failed attempt
             $lastError = $geminiResult['error'] ?? 'Unknown error';
+            $classified = $trackingService->classifyError($geminiResult['http_status'] ?? null, $lastError);
+
+            $recordedRequest = $trackingService->recordAttempt(
+                scanType: 'single_scan',
+                requestedModel: $modelName,
+                actualModel: $modelName,
+                attemptNumber: $attemptNumber,
+                isFallback: $isFallback,
+                fallbackReason: $fallbackReason,
+                parentRequestId: $firstRequestId,
+                imageCount: 1,
+                status: 'failed',
+                httpStatus: $geminiResult['http_status'] ?? null,
+                errorCode: $classified['code'],
+                errorMessage: $classified['message'],
+                startedAt: $geminiResult['started_at'] ?? now(),
+                completedAt: $geminiResult['completed_at'] ?? now(),
+                durationMs: $geminiResult['duration_ms'] ?? 0,
+                usageMetadata: $geminiResult['usage_metadata'] ?? null,
+                attribution: [
+                    'workspace_id' => $workspace->id,
+                    'workspace_name' => $workspace->name,
+                    'user_id' => $user->id,
+                    'user_name' => $user->name,
+                    'user_email' => $user->email,
+                ],
+                references: [
+                    'idempotency_key' => $scanIdempotencyKey,
+                ]
+            );
+
+            if ($attemptNumber === 1 && $recordedRequest) {
+                $firstRequestId = $recordedRequest->id;
+            }
+
+            $previousModel = $modelName;
+            $previousError = $classified['message'];
         }
 
         $storedBackPath = null;
@@ -386,31 +469,50 @@ EOT;
 
         $jsonPayload = json_encode($payload);
 
-        $ch = curl_init($endpoint);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST => true,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'Content-Length: '.strlen($jsonPayload),
-                'x-goog-api-key: '.$apiKey,
-            ],
-            CURLOPT_POSTFIELDS => $jsonPayload,
-            CURLOPT_TIMEOUT => 45,
-            CURLOPT_CONNECTTIMEOUT => 15,
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_SSL_VERIFYHOST => 2,
-        ]);
+        $startTime = hrtime(true);
+        $startedAt = now();
 
-        $rawResponse = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($ch);
-        curl_close($ch);
+        if (static::$curlHandler !== null) {
+            $handlerResult = (static::$curlHandler)($endpoint, $jsonPayload, $apiKey, $model);
+            $rawResponse = $handlerResult['response'] ?? null;
+            $httpCode = $handlerResult['http_code'] ?? 200;
+            $curlError = $handlerResult['error'] ?? null;
+        } else {
+            $ch = curl_init($endpoint);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST => true,
+                CURLOPT_HTTPHEADER => [
+                    'Content-Type: application/json',
+                    'Content-Length: '.strlen($jsonPayload),
+                    'x-goog-api-key: '.$apiKey,
+                ],
+                CURLOPT_POSTFIELDS => $jsonPayload,
+                CURLOPT_TIMEOUT => 45,
+                CURLOPT_CONNECTTIMEOUT => 15,
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2,
+            ]);
+
+            $rawResponse = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlError = curl_error($ch);
+            curl_close($ch);
+        }
+
+        $completedAt = now();
+        $durationMs = (int) round((hrtime(true) - $startTime) / 1e6);
 
         if ($curlError) {
             return [
                 'success' => false,
+                'http_status' => $httpCode ?: null,
                 'error' => "Network cURL error: {$curlError}",
+                'raw_error' => $curlError,
+                'started_at' => $startedAt,
+                'completed_at' => $completedAt,
+                'duration_ms' => $durationMs,
+                'usage_metadata' => null,
             ];
         }
 
@@ -420,17 +522,30 @@ EOT;
 
             return [
                 'success' => false,
+                'http_status' => $httpCode,
                 'error' => "Gemini HTTP {$httpCode}: {$msg}",
+                'raw_error' => $msg,
+                'started_at' => $startedAt,
+                'completed_at' => $completedAt,
+                'duration_ms' => $durationMs,
+                'usage_metadata' => null,
             ];
         }
 
         $json = json_decode($rawResponse, true);
+        $usageMetadata = $json['usageMetadata'] ?? null;
         $text = $json['candidates'][0]['content']['parts'][0]['text'] ?? null;
 
         if (! $text) {
             return [
                 'success' => false,
+                'http_status' => $httpCode,
                 'error' => 'No content returned from Gemini model.',
+                'raw_error' => 'No content returned from Gemini model.',
+                'started_at' => $startedAt,
+                'completed_at' => $completedAt,
+                'duration_ms' => $durationMs,
+                'usage_metadata' => $usageMetadata,
             ];
         }
 
@@ -441,13 +556,24 @@ EOT;
         if (! is_array($parsed)) {
             return [
                 'success' => false,
+                'http_status' => $httpCode,
                 'error' => 'Unable to parse JSON from Gemini response: '.substr($cleanText, 0, 100),
+                'raw_error' => 'Unable to parse JSON from Gemini response: '.substr($cleanText, 0, 100),
+                'started_at' => $startedAt,
+                'completed_at' => $completedAt,
+                'duration_ms' => $durationMs,
+                'usage_metadata' => $usageMetadata,
             ];
         }
 
         return [
             'success' => true,
             'data' => $parsed,
+            'http_status' => $httpCode,
+            'started_at' => $startedAt,
+            'completed_at' => $completedAt,
+            'duration_ms' => $durationMs,
+            'usage_metadata' => $usageMetadata,
         ];
     }
 

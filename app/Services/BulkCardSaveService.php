@@ -285,6 +285,13 @@ class BulkCardSaveService
                             'saved_at' => now(),
                         ]);
 
+                        // Link AI usage request records to saved entities
+                        app(AiUsageTrackingService::class)->linkBulkScanEntities(
+                            bulkImportItemId: $item->id,
+                            cardId: $targetCard->id,
+                            cardScanId: $scan->id
+                        );
+
                         $batch->recalculateCounters();
 
                         return [

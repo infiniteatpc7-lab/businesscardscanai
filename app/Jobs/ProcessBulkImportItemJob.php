@@ -56,7 +56,15 @@ class ProcessBulkImportItemJob implements ShouldQueue
         try {
             $extracted = $visionService->extractCardData(
                 $item->front_image_path,
-                $item->back_image_path
+                $item->back_image_path,
+                [
+                    'workspace_id' => $item->workspace_id,
+                    'user_id' => $item->user_id,
+                    'bulk_import_id' => $item->bulk_import_id,
+                    'bulk_import_item_id' => $item->id,
+                    'idempotency_key' => 'bulk_item_'.$item->id.'_att_'.$this->attempts(),
+                    'scan_type' => 'bulk_scan',
+                ]
             );
 
             // Phase 1 Duplicate Check
