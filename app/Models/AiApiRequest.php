@@ -59,6 +59,8 @@ class AiApiRequest extends Model
         'total_tokens',
         'cost_usd',
         'cost_inr',
+        'cost_calculation_status',
+        'cost_calculated_at',
         'pricing_version',
         'exchange_rate',
         'model_pricing_id',
@@ -88,6 +90,7 @@ class AiApiRequest extends Model
             'cost_usd' => 'decimal:6',
             'cost_inr' => 'decimal:6',
             'exchange_rate' => 'decimal:4',
+            'cost_calculated_at' => 'datetime',
         ];
     }
 
@@ -129,6 +132,22 @@ class AiApiRequest extends Model
     public function scopeForWorkspace(Builder $query, int $workspaceId): Builder
     {
         return $query->where('workspace_id', $workspaceId);
+    }
+
+    /**
+     * Scope a query to only include requests with finalized calculated costs.
+     */
+    public function scopeCostCalculated(Builder $query): Builder
+    {
+        return $query->where('cost_calculation_status', 'calculated');
+    }
+
+    /**
+     * Scope a query to only include requests with pending or missing cost calculation.
+     */
+    public function scopeCostPending(Builder $query): Builder
+    {
+        return $query->whereIn('cost_calculation_status', ['pending', 'pricing_missing', 'exchange_rate_missing']);
     }
 
     /**

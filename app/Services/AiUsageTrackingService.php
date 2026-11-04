@@ -169,7 +169,10 @@ class AiUsageTrackingService
                     ]);
                 }
 
-                return $request;
+                // Automatically calculate request costs using verified pricing & exchange rates
+                app(AiCostCalculationService::class)->calculateAndPersist($request);
+
+                return $request->fresh();
             });
         } catch (\Throwable $e) {
             // Safety boundary: Log tracking failure safely, never crash scanning

@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
 class AiModelPricing extends Model
 {
@@ -73,15 +75,17 @@ class AiModelPricing extends Model
     }
 
     /**
-     * Scope a query to find the current active pricing for a specific model identifier.
+     * Scope a query to find the active pricing for a specific model identifier as of a given timestamp.
      */
-    public function scopeForModel(Builder $query, string $model): Builder
+    public function scopeForModel(Builder $query, string $model, CarbonInterface|string|null $asOf = null): Builder
     {
+        $time = $asOf ? Carbon::parse($asOf) : now();
+
         return $query->where('model_identifier', $model)
             ->where('is_active', true)
-            ->where('effective_from', '<=', now())
-            ->where(function (Builder $q) {
-                $q->whereNull('effective_to')->orWhere('effective_to', '>=', now());
+            ->where('effective_from', '<=', $time)
+            ->where(function (Builder $q) use ($time) {
+                $q->whereNull('effective_to')->orWhere('effective_to', '>', $time);
             })
             ->latest('effective_from');
     }

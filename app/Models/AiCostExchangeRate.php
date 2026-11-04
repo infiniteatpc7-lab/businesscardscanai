@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
 class AiCostExchangeRate extends Model
 {
@@ -53,6 +55,20 @@ class AiCostExchangeRate extends Model
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('is_active', true);
+    }
+
+    /**
+     * Scope a query to locate the most relevant rate for a currency pair as of a specific date.
+     */
+    public function scopeForDate(Builder $query, CarbonInterface|string|null $date = null, string $base = 'USD', string $target = 'INR'): Builder
+    {
+        $dateStr = $date ? Carbon::parse($date)->toDateString() : now()->toDateString();
+
+        return $query->where('base_currency', $base)
+            ->where('target_currency', $target)
+            ->where('is_active', true)
+            ->where('effective_date', '<=', $dateStr)
+            ->orderByDesc('effective_date');
     }
 
     /**
