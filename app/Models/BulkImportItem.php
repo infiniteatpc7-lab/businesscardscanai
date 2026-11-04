@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class BulkImportItem extends Model
 {
@@ -69,6 +70,11 @@ class BulkImportItem extends Model
     public function savedScan(): BelongsTo
     {
         return $this->belongsTo(CardScan::class, 'saved_scan_id');
+    }
+
+    public function aiApiRequests(): HasMany
+    {
+        return $this->hasMany(AiApiRequest::class);
     }
 
     public function scopeForWorkspace(Builder $query, int $workspaceId): Builder

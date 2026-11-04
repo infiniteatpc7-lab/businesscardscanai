@@ -149,6 +149,14 @@ class User extends Authenticatable
     }
 
     /**
+     * Get all AI API requests triggered by this user.
+     */
+    public function aiApiRequests(): HasMany
+    {
+        return $this->hasMany(AiApiRequest::class);
+    }
+
+    /**
      * Platform administrator who suspended this customer.
      */
     public function suspendedByAdmin(): BelongsTo

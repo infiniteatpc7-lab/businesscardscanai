@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CardScan extends Model
 {
@@ -89,5 +90,13 @@ class CardScan extends Model
     public function bulkImportItem(): BelongsTo
     {
         return $this->belongsTo(BulkImportItem::class);
+    }
+
+    /**
+     * Get the AI API requests generated for this scan.
+     */
+    public function aiApiRequests(): HasMany
+    {
+        return $this->hasMany(AiApiRequest::class);
     }
 }

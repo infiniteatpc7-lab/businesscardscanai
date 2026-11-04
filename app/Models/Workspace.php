@@ -108,6 +108,14 @@ class Workspace extends Model
     }
 
     /**
+     * Get all AI API requests attributed to this workspace.
+     */
+    public function aiApiRequests(): HasMany
+    {
+        return $this->hasMany(AiApiRequest::class);
+    }
+
+    /**
      * Get the active subscription for this workspace, auto-assigning Free Plan if missing.
      */
     public function activeSubscription(): WorkspaceSubscription

@@ -71,6 +71,11 @@ class BulkImport extends Model
         return $this->hasMany(BulkImportItem::class)->orderBy('sequence_order');
     }
 
+    public function aiApiRequests(): HasMany
+    {
+        return $this->hasMany(AiApiRequest::class);
+    }
+
     public function isCancelled(): bool
     {
         return $this->cancelled_at !== null || $this->status === 'cancelled';

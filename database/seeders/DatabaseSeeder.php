@@ -37,5 +37,6 @@ class DatabaseSeeder extends Seeder
         }
 
         $this->call(PlatformAdminSeeder::class);
+        $this->call(AiPricingSeeder::class);
     }
 }
