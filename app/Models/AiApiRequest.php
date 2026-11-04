@@ -153,8 +153,12 @@ class AiApiRequest extends Model
     /**
      * Estimated cost allocated per image for this request in USD.
      */
-    public function costPerImageUsd(): float
+    public function costPerImageUsd(): ?float
     {
+        if ($this->cost_usd === null) {
+            return null;
+        }
+
         $count = max(1, $this->image_count);
 
         return round(((float) $this->cost_usd) / $count, 6);
@@ -163,8 +167,12 @@ class AiApiRequest extends Model
     /**
      * Estimated cost allocated per image for this request in INR.
      */
-    public function costPerImageInr(): float
+    public function costPerImageInr(): ?float
     {
+        if ($this->cost_inr === null) {
+            return null;
+        }
+
         $count = max(1, $this->image_count);
 
         return round(((float) $this->cost_inr) / $count, 6);

@@ -53,7 +53,7 @@ class RecalculateAiCostsCommand extends Command
         $query = AiApiRequest::query();
 
         if (! $force || $allPending) {
-            $query->whereIn('cost_calculation_status', ['pending', 'pricing_missing', 'exchange_rate_missing']);
+            $query->whereIn('cost_calculation_status', ['pending', 'pricing_missing', 'exchange_rate_missing', 'usage_metadata_missing']);
         }
 
         $count = $query->count();

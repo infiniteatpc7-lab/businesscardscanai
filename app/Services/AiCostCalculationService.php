@@ -23,6 +23,24 @@ class AiCostCalculationService
     public const CURRENCY_DECIMALS = 6;
 
     /**
+     * Round a decimal string to the target currency precision using pure BCMath rounding (no float conversion).
+     */
+    public function roundDecimal(string $number, int $precision = self::CURRENCY_DECIMALS): string
+    {
+        if (function_exists('bcround')) {
+            return bcround($number, $precision);
+        }
+
+        // Pure BCMath string half-up rounding fallback without float conversions
+        $sign = str_starts_with($number, '-') ? '-' : '';
+        $unsigned = ltrim($number, '-');
+        $half = '0.'.str_repeat('0', $precision).'5';
+        $added = bcadd($unsigned, $half, $precision + 1);
+
+        return $sign.bcadd($added, '0', $precision);
+    }
+
+    /**
      * Calculate and persist the actual Gemini API costs for an individual AI request attempt.
      * Guaranteed to be idempotent and safe under concurrent execution.
      */
@@ -49,12 +67,28 @@ class AiCostCalculationService
                 $thoughtsTokens = (int) $locked->thoughts_tokens;
                 $totalTokens = (int) $locked->total_tokens;
 
-                // Handle zero-token / missing-usage requests (e.g. failed before reaching provider API)
+                // Handle zero-token / missing-usage requests
                 if ($totalTokens === 0 && $promptTokens === 0 && $candidatesTokens === 0) {
+                    $hasConfirmedUsageMetadata = $locked->usageDetail !== null
+                        && $locked->usageDetail->raw_usage_metadata !== null;
+
+                    if ($hasConfirmedUsageMetadata) {
+                        // Confirmed zero-token request (provider explicitly reported 0 tokens)
+                        $locked->update([
+                            'cost_usd' => '0.000000',
+                            'cost_inr' => '0.000000',
+                            'cost_calculation_status' => 'no_usage',
+                            'cost_calculated_at' => now(),
+                        ]);
+
+                        return $locked;
+                    }
+
+                    // Usage metadata is missing (request failed before response or metadata dropped)
                     $locked->update([
-                        'cost_usd' => 0.000000,
-                        'cost_inr' => 0.000000,
-                        'cost_calculation_status' => 'no_usage',
+                        'cost_usd' => null,
+                        'cost_inr' => null,
+                        'cost_calculation_status' => 'usage_metadata_missing',
                         'cost_calculated_at' => now(),
                     ]);
 
@@ -66,7 +100,10 @@ class AiCostCalculationService
 
                 if (! $pricing) {
                     $locked->update([
+                        'cost_usd' => null,
+                        'cost_inr' => null,
                         'cost_calculation_status' => 'pricing_missing',
+                        'cost_calculated_at' => now(),
                     ]);
 
                     return $locked;
@@ -90,15 +127,15 @@ class AiCostCalculationService
                     self::BCMATH_SCALE
                 );
 
-                $costUsdFormatted = number_format((float) $costUsdRaw, self::CURRENCY_DECIMALS, '.', '');
+                $costUsdFormatted = $this->roundDecimal($costUsdRaw, self::CURRENCY_DECIMALS);
 
                 $exchangeRate = $this->findApplicableExchangeRate($requestTime, 'USD', 'INR');
 
                 if (! $exchangeRate) {
-                    // When exchange rate is unavailable, preserve calculated USD cost while keeping INR pending
+                    // When exchange rate is unavailable, preserve calculated USD cost while keeping INR NULL
                     $locked->update([
                         'cost_usd' => $costUsdFormatted,
-                        'cost_inr' => 0.000000,
+                        'cost_inr' => null,
                         'pricing_version' => $pricing->pricing_version,
                         'model_pricing_id' => $pricing->id,
                         'exchange_rate_id' => null,
@@ -112,7 +149,7 @@ class AiCostCalculationService
 
                 $rateStr = (string) $exchangeRate->exchange_rate;
                 $costInrRaw = bcmul($costUsdRaw, $rateStr, self::BCMATH_SCALE);
-                $costInrFormatted = number_format((float) $costInrRaw, self::CURRENCY_DECIMALS, '.', '');
+                $costInrFormatted = $this->roundDecimal($costInrRaw, self::CURRENCY_DECIMALS);
 
                 $locked->update([
                     'cost_usd' => $costUsdFormatted,
@@ -132,6 +169,15 @@ class AiCostCalculationService
                 'request_id' => $request->id,
                 'request_uuid' => $request->request_uuid,
             ]);
+
+            try {
+                AiApiRequest::where('id', $request->id)->update([
+                    'cost_calculation_status' => 'calculation_failed',
+                    'cost_calculated_at' => now(),
+                ]);
+            } catch (\Throwable) {
+                // Ignore fallback update errors
+            }
 
             return null;
         }
@@ -167,6 +213,7 @@ class AiCostCalculationService
                 $q->whereNull('effective_to')->orWhere('effective_to', '>', $time);
             })
             ->orderByDesc('effective_from')
+            ->orderByDesc('pricing_version')
             ->first();
     }
 
@@ -184,7 +231,10 @@ class AiCostCalculationService
         return AiCostExchangeRate::where('base_currency', $base)
             ->where('target_currency', $target)
             ->where('is_active', true)
-            ->where('effective_date', '<=', $dateStr)
+            ->where(function ($q) use ($dateStr) {
+                $q->whereDate('effective_date', '<=', $dateStr)
+                    ->orWhere('effective_date', '<=', $dateStr.' 23:59:59');
+            })
             ->orderByDesc('effective_date')
             ->first();
     }

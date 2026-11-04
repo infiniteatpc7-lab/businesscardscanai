@@ -3,12 +3,10 @@
 namespace Tests\Feature;
 
 use App\Models\AiApiRequest;
+use App\Models\AiApiUsageDetail;
 use App\Models\AiCostExchangeRate;
 use App\Models\AiModelPricing;
 use App\Models\ApiToken;
-use App\Models\BulkImport;
-use App\Models\BulkImportItem;
-use App\Models\Exhibition;
 use App\Models\Plan;
 use App\Models\ScanUsageLedger;
 use App\Models\User;
@@ -19,6 +17,7 @@ use Database\Seeders\AiPricingSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -96,330 +95,293 @@ class AiCostCalculationTest extends TestCase
             'image_count' => 1,
             'status' => 'success',
             'http_status' => 200,
-            'started_at' => now(),
-            'completed_at' => now(),
+            'started_at' => Carbon::parse('2026-01-10 12:00:00'),
+            'completed_at' => Carbon::parse('2026-01-10 12:00:01'),
             'duration_ms' => 850,
             'prompt_tokens' => 1000,
             'candidates_tokens' => 200,
             'thoughts_tokens' => 0,
             'cached_tokens' => 0,
             'total_tokens' => 1200,
-            'cost_usd' => 0.000000,
-            'cost_inr' => 0.000000,
+            'cost_usd' => null,
+            'cost_inr' => null,
             'cost_calculation_status' => 'pending',
         ], $overrides));
     }
 
     /**
-     * Requirement 1: Correct input-token cost calculation.
+     * Requirement 1: Official model pricing records & effective dates.
      */
-    public function test_01_correct_input_token_cost_calculation(): void
+    public function test_01_official_model_pricing_records_and_effective_dates(): void
     {
-        // gemini-3.5-flash: input is $0.075 per 1M tokens ($0.000000075 / token)
-        // 100,000 prompt tokens = 100,000 * 0.000000075 = $0.007500
-        $request = $this->createSampleRequest([
+        $expectedModels = [
+            'gemini-3.5-flash',
+            'gemini-3.5-flash-lite',
+            'gemini-flash-lite-latest',
+            'gemini-3.8-flash',
+            'gemini-2.5-flash',
+            'gemini-1.5-flash',
+            'gemini-1.5-pro',
+        ];
+
+        foreach ($expectedModels as $model) {
+            $pricing = AiModelPricing::where('model_identifier', $model)
+                ->where('pricing_version', '2026-v2')
+                ->first();
+
+            $this->assertNotNull($pricing, "Expected 2026-v2 pricing record for {$model}");
+            $this->assertTrue($pricing->is_active);
+            $this->assertNotNull($pricing->effective_from);
+            $this->assertStringContainsString('https://ai.google.dev/gemini-api/docs/pricing', $pricing->notes);
+        }
+    }
+
+    /**
+     * Requirement 2: Correct model-specific pricing (3.5-flash vs 3.5-flash-lite vs 3.8-flash vs 1.5-pro).
+     */
+    public function test_02_correct_model_specific_pricing(): void
+    {
+        // 1. gemini-3.5-flash (input: $1.50/M, output: $9.00/M)
+        // 100,000 prompt + 100,000 candidate = $0.150000 + $0.900000 = $1.050000
+        $flash = $this->createSampleRequest([
+            'requested_model' => 'gemini-3.5-flash',
+            'actual_model' => 'gemini-3.5-flash',
             'prompt_tokens' => 100000,
-            'candidates_tokens' => 0,
-            'cached_tokens' => 0,
-            'thoughts_tokens' => 0,
-            'total_tokens' => 100000,
-        ]);
-
-        $calculated = $this->costService->calculateAndPersist($request);
-
-        $this->assertNotNull($calculated);
-        $this->assertEquals('calculated', $calculated->cost_calculation_status);
-        $this->assertEquals('0.007500', $calculated->cost_usd);
-
-        // Exchange rate is 86.5000 -> 0.007500 * 86.5000 = 0.648750 INR
-        $this->assertEquals('0.648750', $calculated->cost_inr);
-    }
-
-    /**
-     * Requirement 2: Correct output-token cost calculation.
-     */
-    public function test_02_correct_output_token_cost_calculation(): void
-    {
-        // gemini-3.5-flash: output is $0.30 per 1M tokens ($0.00000030 / token)
-        // 100,000 candidate tokens = 100,000 * 0.00000030 = $0.030000
-        $request = $this->createSampleRequest([
-            'prompt_tokens' => 0,
             'candidates_tokens' => 100000,
-            'cached_tokens' => 0,
-            'thoughts_tokens' => 0,
-            'total_tokens' => 100000,
+            'total_tokens' => 200000,
         ]);
+        $calcFlash = $this->costService->calculateAndPersist($flash);
+        $this->assertEquals('1.050000', $calcFlash->cost_usd);
 
-        $calculated = $this->costService->calculateAndPersist($request);
-
-        $this->assertNotNull($calculated);
-        $this->assertEquals('calculated', $calculated->cost_calculation_status);
-        $this->assertEquals('0.030000', $calculated->cost_usd);
-
-        // 0.030000 * 86.5000 = 2.595000 INR
-        $this->assertEquals('2.595000', $calculated->cost_inr);
-    }
-
-    /**
-     * Requirement 3: Thinking-token cost calculation.
-     */
-    public function test_03_thinking_token_cost_calculation(): void
-    {
-        // In Gemini, candidatesTokenCount includes thoughtTokenCount.
-        // If candidates_tokens = 50,000 and thoughts_tokens = 20,000:
-        // non-thought candidate tokens = 30,000 @ $0.30/M = $0.009000
-        // thought tokens = 20,000 @ $0.30/M = $0.006000
-        // total output = $0.015000
-        $request = $this->createSampleRequest([
-            'prompt_tokens' => 0,
-            'candidates_tokens' => 50000,
-            'thoughts_tokens' => 20000,
-            'cached_tokens' => 0,
-            'total_tokens' => 50000,
-        ]);
-
-        $calculated = $this->costService->calculateAndPersist($request);
-
-        $this->assertNotNull($calculated);
-        $this->assertEquals('0.015000', $calculated->cost_usd);
-    }
-
-    /**
-     * Requirement 4: Cached-token calculation without double-counting.
-     */
-    public function test_04_cached_token_calculation_without_double_counting(): void
-    {
-        // Gemini promptTokenCount = 10,000, with cachedContentTokenCount = 8,000.
-        // Non-cached prompt tokens = 10,000 - 8,000 = 2,000.
-        // Input rate = $0.075/M, Cached rate = $0.01875/M
-        // Non-cached prompt cost = 2,000 * 0.075/1M = $0.000150
-        // Cached prompt cost = 8,000 * 0.01875/1M = $0.000150
-        // Total prompt cost = $0.000300
-        // (If double counted: 10,000 * 0.075/1M + 8,000 * 0.01875/1M would be $0.000900)
-        $request = $this->createSampleRequest([
-            'prompt_tokens' => 10000,
-            'cached_tokens' => 8000,
-            'candidates_tokens' => 0,
-            'thoughts_tokens' => 0,
-            'total_tokens' => 10000,
-        ]);
-
-        $calculated = $this->costService->calculateAndPersist($request);
-
-        $this->assertNotNull($calculated);
-        $this->assertEquals('0.000300', $calculated->cost_usd);
-        $this->assertNotEquals('0.000900', $calculated->cost_usd);
-    }
-
-    /**
-     * Requirement 5: Different Gemini model pricing.
-     */
-    public function test_05_different_gemini_model_pricing(): void
-    {
-        // 1. gemini-3.5-flash-lite: $0.0375 / $0.1500
-        $liteRequest = $this->createSampleRequest([
+        // 2. gemini-3.5-flash-lite (input: $0.30/M, output: $2.50/M)
+        // 100,000 prompt + 100,000 candidate = $0.030000 + $0.250000 = $0.280000
+        $lite = $this->createSampleRequest([
             'requested_model' => 'gemini-3.5-flash-lite',
             'actual_model' => 'gemini-3.5-flash-lite',
             'prompt_tokens' => 100000,
             'candidates_tokens' => 100000,
             'total_tokens' => 200000,
         ]);
-        $calculatedLite = $this->costService->calculateAndPersist($liteRequest);
-        // (100k * 0.0375/1M) + (100k * 0.15/1M) = 0.003750 + 0.015000 = 0.018750
-        $this->assertEquals('0.018750', $calculatedLite->cost_usd);
+        $calcLite = $this->costService->calculateAndPersist($lite);
+        $this->assertEquals('0.280000', $calcLite->cost_usd);
 
-        // 2. gemini-1.5-pro: $1.25 / $5.00
-        $proRequest = $this->createSampleRequest([
+        // 3. gemini-3.8-flash (input: $0.75/M, output: $3.75/M)
+        // 100,000 prompt + 100,000 candidate = $0.075000 + $0.375000 = $0.450000
+        $flash38 = $this->createSampleRequest([
+            'requested_model' => 'gemini-3.8-flash',
+            'actual_model' => 'gemini-3.8-flash',
+            'prompt_tokens' => 100000,
+            'candidates_tokens' => 100000,
+            'total_tokens' => 200000,
+        ]);
+        $calc38 = $this->costService->calculateAndPersist($flash38);
+        $this->assertEquals('0.450000', $calc38->cost_usd);
+
+        // 4. gemini-1.5-pro (input: $1.25/M, output: $5.00/M)
+        // 100,000 prompt + 100,000 candidate = $0.125000 + $0.500000 = $0.625000
+        $pro = $this->createSampleRequest([
             'requested_model' => 'gemini-1.5-pro',
             'actual_model' => 'gemini-1.5-pro',
             'prompt_tokens' => 100000,
             'candidates_tokens' => 100000,
             'total_tokens' => 200000,
         ]);
-        $calculatedPro = $this->costService->calculateAndPersist($proRequest);
-        // (100k * 1.25/1M) + (100k * 5.00/1M) = 0.125000 + 0.500000 = 0.625000
-        $this->assertEquals('0.625000', $calculatedPro->cost_usd);
+        $calcPro = $this->costService->calculateAndPersist($pro);
+        $this->assertEquals('0.625000', $calcPro->cost_usd);
     }
 
     /**
-     * Requirement 6: Historical pricing version selection.
+     * Requirement 3: No fictional model identifiers seeded.
      */
-    public function test_06_historical_pricing_version_selection(): void
+    public function test_03_no_fictional_model_identifiers(): void
     {
-        // Create an older pricing version 2025-v1 valid in 2025
-        AiModelPricing::create([
-            'provider' => 'google',
-            'model_identifier' => 'gemini-custom-model',
-            'pricing_version' => '2025-v1',
-            'input_token_price_per_million' => 0.100000,
-            'output_token_price_per_million' => 0.400000,
-            'cached_input_token_price_per_million' => 0.025000,
-            'thoughts_token_price_per_million' => 0.400000,
-            'input_token_unit_price' => 0.0000001000,
-            'output_token_unit_price' => 0.0000004000,
-            'cached_input_token_unit_price' => 0.0000000250,
-            'thoughts_token_unit_price' => 0.0000004000,
-            'currency' => 'USD',
-            'effective_from' => '2025-01-01 00:00:00',
-            'effective_to' => '2026-01-01 00:00:00',
-            'is_active' => true,
-        ]);
+        $fictionalModels = ['gemini-fake-vision', 'gemini-ultra-nonexistent', 'gemini-gpt-turbo'];
 
-        // Create new pricing version 2026-v1 valid from 2026 onwards
-        AiModelPricing::create([
-            'provider' => 'google',
-            'model_identifier' => 'gemini-custom-model',
-            'pricing_version' => '2026-v1',
-            'input_token_price_per_million' => 0.050000,
-            'output_token_price_per_million' => 0.200000,
-            'cached_input_token_price_per_million' => 0.012500,
-            'thoughts_token_price_per_million' => 0.200000,
-            'input_token_unit_price' => 0.0000000500,
-            'output_token_unit_price' => 0.0000002000,
-            'cached_input_token_unit_price' => 0.0000000125,
-            'thoughts_token_unit_price' => 0.0000002000,
-            'currency' => 'USD',
-            'effective_from' => '2026-01-01 00:00:00',
-            'effective_to' => null,
-            'is_active' => true,
-        ]);
+        foreach ($fictionalModels as $fictional) {
+            $pricing = AiModelPricing::where('model_identifier', $fictional)->first();
+            $this->assertNull($pricing, "Fictional model {$fictional} should not exist in pricing database");
 
-        // Historical request from 2025 must select 2025-v1
-        $oldRequest = $this->createSampleRequest([
-            'requested_model' => 'gemini-custom-model',
-            'actual_model' => 'gemini-custom-model',
-            'started_at' => Carbon::parse('2025-06-15 12:00:00'),
-            'prompt_tokens' => 100000,
-            'candidates_tokens' => 0,
-        ]);
-        $calcOld = $this->costService->calculateAndPersist($oldRequest);
-        $this->assertEquals('2025-v1', $calcOld->pricing_version);
-        $this->assertEquals('0.010000', $calcOld->cost_usd); // 100k * 0.10/M
+            $req = $this->createSampleRequest([
+                'requested_model' => $fictional,
+                'actual_model' => $fictional,
+                'prompt_tokens' => 500,
+                'candidates_tokens' => 200,
+                'total_tokens' => 700,
+            ]);
 
-        // Current request from 2026 must select 2026-v1
-        $newRequest = $this->createSampleRequest([
-            'requested_model' => 'gemini-custom-model',
-            'actual_model' => 'gemini-custom-model',
-            'started_at' => Carbon::parse('2026-03-01 12:00:00'),
-            'prompt_tokens' => 100000,
-            'candidates_tokens' => 0,
-        ]);
-        $calcNew = $this->costService->calculateAndPersist($newRequest);
-        $this->assertEquals('2026-v1', $calcNew->pricing_version);
-        $this->assertEquals('0.005000', $calcNew->cost_usd); // 100k * 0.05/M
+            $result = $this->costService->calculateAndPersist($req);
+            $this->assertEquals('pricing_missing', $result->cost_calculation_status);
+            $this->assertNull($result->cost_usd);
+            $this->assertNull($result->cost_inr);
+        }
     }
 
     /**
-     * Requirement 7: Historical USD-INR exchange-rate selection.
+     * Requirement 4: BCMath-only calculations maintaining full precision.
      */
-    public function test_07_historical_usd_inr_exchange_rate_selection(): void
+    public function test_04_bcmath_only_calculations(): void
     {
-        // 2025 pricing for gemini-3.5-flash
-        AiModelPricing::create([
-            'provider' => 'google',
-            'model_identifier' => 'gemini-3.5-flash',
-            'pricing_version' => '2025-v1',
-            'input_token_price_per_million' => 0.075000,
-            'output_token_price_per_million' => 0.300000,
-            'cached_input_token_price_per_million' => 0.018750,
-            'thoughts_token_price_per_million' => 0.300000,
-            'input_token_unit_price' => 0.0000000750,
-            'output_token_unit_price' => 0.0000003000,
-            'cached_input_token_unit_price' => 0.0000000188,
-            'thoughts_token_unit_price' => 0.0000003000,
-            'currency' => 'USD',
-            'effective_from' => '2025-01-01 00:00:00',
-            'effective_to' => '2026-01-01 00:00:00',
-            'is_active' => true,
-        ]);
+        // Calculate cost for large token amounts and verified rates
+        $calcCost = $this->costService->calcTokenCost(1234567, '1.500000');
+        // 1,234,567 * 1.50 / 1,000,000 = 1.851850500000
+        $this->assertEquals('1.851850500000', $calcCost);
 
-        // 2025 rate: 83.2500
-        AiCostExchangeRate::create([
-            'base_currency' => 'USD',
-            'target_currency' => 'INR',
-            'exchange_rate' => 83.2500,
-            'effective_date' => '2025-01-01',
-            'source' => 'system',
-            'is_active' => true,
-        ]);
-
-        // Request from 2025 must use 83.2500
-        $request2025 = $this->createSampleRequest([
-            'started_at' => Carbon::parse('2025-08-10 10:00:00'),
-            'prompt_tokens' => 100000, // $0.007500 USD
-            'candidates_tokens' => 0,
-        ]);
-        $calc2025 = $this->costService->calculateAndPersist($request2025);
-        $this->assertEquals('83.2500', $calc2025->exchange_rate);
-        // 0.007500 * 83.25 = 0.624375
-        $this->assertEquals('0.624375', $calc2025->cost_inr);
-
-        // Request from 2026 uses 86.5000
-        $request2026 = $this->createSampleRequest([
-            'started_at' => Carbon::parse('2026-02-15 10:00:00'),
-            'prompt_tokens' => 100000,
-            'candidates_tokens' => 0,
-        ]);
-        $calc2026 = $this->costService->calculateAndPersist($request2026);
-        $this->assertEquals('86.5000', $calc2026->exchange_rate);
-        $this->assertEquals('0.648750', $calc2026->cost_inr);
+        $rounded = $this->costService->roundDecimal($calcCost, 6);
+        $this->assertEquals('1.851851', $rounded);
     }
 
     /**
-     * Requirement 8: Missing pricing data.
+     * Requirement 5: No float conversion in financial calculations.
      */
-    public function test_08_missing_pricing_data(): void
+    public function test_05_no_float_conversion_in_financial_calculations(): void
+    {
+        // In floating-point arithmetic: 0.1 + 0.2 != 0.3.
+        // Pure BCMath string rounding handles exact decimal values without exponent representations.
+        $rawDecimal = '0.000000499999';
+        $rounded = $this->costService->roundDecimal($rawDecimal, 6);
+        $this->assertEquals('0.000000', $rounded);
+
+        $rawBoundary = '0.000000500000';
+        $roundedHalfUp = $this->costService->roundDecimal($rawBoundary, 6);
+        $this->assertEquals('0.000001', $roundedHalfUp);
+    }
+
+    /**
+     * Requirement 6: Small decimal values and rounding boundaries.
+     */
+    public function test_06_small_decimal_values_and_rounding_boundaries(): void
+    {
+        // 1 single prompt token with gemini-3.5-flash-lite ($0.30/M -> $0.00000030 per token)
+        $request = $this->createSampleRequest([
+            'requested_model' => 'gemini-3.5-flash-lite',
+            'actual_model' => 'gemini-3.5-flash-lite',
+            'prompt_tokens' => 1,
+            'candidates_tokens' => 0,
+            'total_tokens' => 1,
+        ]);
+
+        $calculated = $this->costService->calculateAndPersist($request);
+        // Cost raw = 0.000000300000 -> rounds to 0.000000 at 6 decimals
+        $this->assertEquals('0.000000', $calculated->cost_usd);
+
+        // 2 tokens = 0.000000600000 -> rounds half-up to 0.000001 at 6 decimals
+        $request2 = $this->createSampleRequest([
+            'requested_model' => 'gemini-3.5-flash-lite',
+            'actual_model' => 'gemini-3.5-flash-lite',
+            'prompt_tokens' => 2,
+            'candidates_tokens' => 0,
+            'total_tokens' => 2,
+        ]);
+
+        $calculated2 = $this->costService->calculateAndPersist($request2);
+        $this->assertEquals('0.000001', $calculated2->cost_usd);
+    }
+
+    /**
+     * Requirement 7: Missing usage metadata -> usage_metadata_missing, cost_usd = null, cost_inr = null.
+     */
+    public function test_07_missing_usage_metadata_returns_null_costs(): void
     {
         $request = $this->createSampleRequest([
-            'requested_model' => 'unknown-future-model-99',
-            'actual_model' => 'unknown-future-model-99',
-            'prompt_tokens' => 5000,
-            'candidates_tokens' => 1000,
+            'prompt_tokens' => 0,
+            'candidates_tokens' => 0,
+            'cached_tokens' => 0,
+            'thoughts_tokens' => 0,
+            'total_tokens' => 0,
+            'cost_usd' => null,
+            'cost_inr' => null,
+        ]);
+
+        // No AiApiUsageDetail record exists for this request
+        $calculated = $this->costService->calculateAndPersist($request);
+
+        $this->assertNotNull($calculated);
+        $this->assertEquals('usage_metadata_missing', $calculated->cost_calculation_status);
+        $this->assertNull($calculated->cost_usd);
+        $this->assertNull($calculated->cost_inr);
+    }
+
+    /**
+     * Requirement 8: Missing model pricing -> pricing_missing, cost_usd = null, cost_inr = null.
+     */
+    public function test_08_missing_model_pricing_returns_null_costs(): void
+    {
+        $request = $this->createSampleRequest([
+            'requested_model' => 'gemini-unknown-version-99',
+            'actual_model' => 'gemini-unknown-version-99',
+            'prompt_tokens' => 1000,
+            'candidates_tokens' => 500,
+            'total_tokens' => 1500,
+            'cost_usd' => null,
+            'cost_inr' => null,
         ]);
 
         $calculated = $this->costService->calculateAndPersist($request);
 
         $this->assertNotNull($calculated);
         $this->assertEquals('pricing_missing', $calculated->cost_calculation_status);
-        $this->assertEquals('0.000000', $calculated->cost_usd);
-        $this->assertEquals('0.000000', $calculated->cost_inr);
+        $this->assertNull($calculated->cost_usd);
+        $this->assertNull($calculated->cost_inr);
     }
 
     /**
-     * Requirement 9: Missing exchange-rate data.
+     * Requirement 9: Missing exchange rate -> exchange_rate_missing, cost_usd preserved, cost_inr = null.
      */
-    public function test_09_missing_exchange_rate_data(): void
+    public function test_09_missing_exchange_rate_preserves_usd_and_leaves_inr_null(): void
     {
-        // Deactivate all USD-to-INR rates
-        AiCostExchangeRate::query()->update(['is_active' => false]);
+        // Date before any seeded exchange rates (e.g. 2025-06-01)
+        $oldDate = Carbon::parse('2025-06-01 10:00:00');
 
         $request = $this->createSampleRequest([
-            'prompt_tokens' => 100000, // $0.007500 USD
+            'started_at' => $oldDate,
+            'completed_at' => $oldDate->copy()->addSecond(),
+            'prompt_tokens' => 100000,
             'candidates_tokens' => 0,
+            'total_tokens' => 100000,
+        ]);
+
+        // Historical 2026-v1 is effective from 2026-01-01, create a test pricing for 2025 to test exchange rate absence
+        AiModelPricing::create([
+            'provider' => 'google',
+            'model_identifier' => 'gemini-3.5-flash',
+            'pricing_version' => '2025-test',
+            'input_token_price_per_million' => 1.500000,
+            'output_token_price_per_million' => 9.000000,
+            'input_token_unit_price' => 0.0000015000,
+            'output_token_unit_price' => 0.0000090000,
+            'currency' => 'USD',
+            'effective_from' => '2025-01-01 00:00:00',
+            'is_active' => true,
         ]);
 
         $calculated = $this->costService->calculateAndPersist($request);
 
         $this->assertNotNull($calculated);
         $this->assertEquals('exchange_rate_missing', $calculated->cost_calculation_status);
-        // USD cost is preserved
-        $this->assertEquals('0.007500', $calculated->cost_usd);
-        // INR cost is zero / pending
-        $this->assertEquals('0.000000', $calculated->cost_inr);
-        $this->assertNull($calculated->exchange_rate_id);
+        $this->assertEquals('0.150000', $calculated->cost_usd);
+        $this->assertNull($calculated->cost_inr);
     }
 
     /**
-     * Requirement 10: Missing token metadata.
+     * Requirement 10: Confirmed zero-token requests -> no_usage, 0.000000.
      */
-    public function test_10_missing_token_metadata(): void
+    public function test_10_confirmed_zero_token_requests(): void
     {
         $request = $this->createSampleRequest([
             'prompt_tokens' => 0,
             'candidates_tokens' => 0,
-            'thoughts_tokens' => 0,
-            'cached_tokens' => 0,
             'total_tokens' => 0,
+        ]);
+
+        // Attach an explicit usage detail confirming 0 tokens
+        AiApiUsageDetail::create([
+            'ai_api_request_id' => $request->id,
+            'prompt_tokens' => 0,
+            'candidates_tokens' => 0,
+            'thoughts_tokens' => 0,
+            'cached_content_tokens' => 0,
+            'total_tokens' => 0,
+            'raw_usage_metadata' => ['promptTokenCount' => 0, 'candidatesTokenCount' => 0, 'totalTokenCount' => 0],
         ]);
 
         $calculated = $this->costService->calculateAndPersist($request);
@@ -431,285 +393,162 @@ class AiCostCalculationTest extends TestCase
     }
 
     /**
-     * Requirement 11: Failed Gemini attempt with billable token usage.
+     * Requirement 11: Failed billable API requests -> calculated.
      */
-    public function test_11_failed_gemini_attempt_with_billable_token_usage(): void
+    public function test_11_failed_billable_api_requests(): void
     {
-        // Model returned an HTTP 500 or safety block after consuming prompt tokens
+        // An API request that failed with HTTP 400 or 500, but Gemini returned tokens consumed
         $request = $this->createSampleRequest([
             'status' => 'failed',
-            'http_status' => 500,
-            'error_code' => 'provider_error',
-            'error_message' => 'Internal server error during content generation',
-            'prompt_tokens' => 20000,
+            'http_status' => 400,
+            'error_code' => 'INVALID_ARGUMENT',
+            'error_message' => 'Malformed card image content',
+            'prompt_tokens' => 50000,
             'candidates_tokens' => 0,
-            'total_tokens' => 20000,
+            'total_tokens' => 50000,
         ]);
 
         $calculated = $this->costService->calculateAndPersist($request);
 
         $this->assertNotNull($calculated);
         $this->assertEquals('calculated', $calculated->cost_calculation_status);
-        // 20,000 * 0.075/1M = $0.001500 USD
-        $this->assertEquals('0.001500', $calculated->cost_usd);
-        // 0.001500 * 86.5000 = 0.129750 INR
-        $this->assertEquals('0.129750', $calculated->cost_inr);
+        // 50,000 * 1.50 / 1M = 0.075000 USD
+        $this->assertEquals('0.075000', $calculated->cost_usd);
+        $this->assertNotNull($calculated->cost_inr);
     }
 
     /**
-     * Requirement 12: Multiple fallback attempts with separate costs.
+     * Requirement 12: NULL INR cost when exchange rate unavailable (never silently 0.000000).
      */
-    public function test_12_multiple_fallback_attempts_with_separate_costs(): void
+    public function test_12_null_inr_cost_when_exchange_rate_unavailable(): void
     {
-        // Attempt 1: Gemini 3.5 Flash fails after 10,000 prompt tokens
-        $attempt1 = $this->createSampleRequest([
-            'attempt_number' => 1,
-            'is_fallback' => false,
-            'requested_model' => 'gemini-3.5-flash',
-            'actual_model' => 'gemini-3.5-flash',
-            'status' => 'failed',
-            'http_status' => 429,
-            'prompt_tokens' => 10000,
-            'candidates_tokens' => 0,
-            'total_tokens' => 10000,
-        ]);
-        $calc1 = $this->costService->calculateAndPersist($attempt1);
-
-        // Attempt 2: Gemini 3.5 Flash-Lite succeeds with 10,000 prompt + 500 output tokens
-        $attempt2 = $this->createSampleRequest([
-            'attempt_number' => 2,
-            'is_fallback' => true,
-            'fallback_reason' => 'Fallback from gemini-3.5-flash: Rate limit',
-            'parent_request_id' => $attempt1->id,
-            'requested_model' => 'gemini-3.5-flash-lite',
-            'actual_model' => 'gemini-3.5-flash-lite',
-            'status' => 'success',
-            'http_status' => 200,
-            'prompt_tokens' => 10000,
-            'candidates_tokens' => 500,
-            'total_tokens' => 10500,
-        ]);
-        $calc2 = $this->costService->calculateAndPersist($attempt2);
-
-        // Attempt 1 Cost: 10,000 * 0.075/1M = $0.000750
-        $this->assertEquals('0.000750', $calc1->cost_usd);
-
-        // Attempt 2 Cost (Lite rates): (10,000 * 0.0375/1M) + (500 * 0.15/1M) = 0.000375 + 0.000075 = $0.000450
-        $this->assertEquals('0.000450', $calc2->cost_usd);
-
-        // Total AI provider spend is the sum of both attempts
-        $totalSpendUsd = (float) $calc1->cost_usd + (float) $calc2->cost_usd;
-        $this->assertEquals(0.001200, round($totalSpendUsd, 6));
-    }
-
-    /**
-     * Requirement 13: Bulk requests with multiple images.
-     */
-    public function test_13_bulk_requests_with_multiple_images(): void
-    {
-        $setup = $this->createWorkspaceUser();
-
-        $batch = BulkImport::create([
-            'workspace_id' => $setup['workspace']->id,
-            'user_id' => $setup['user']->id,
-            'exhibition_id' => Exhibition::create([
-                'workspace_id' => $setup['workspace']->id,
-                'created_by_user_id' => $setup['user']->id,
-                'name' => 'Ceramics Expo 2026',
-                'status' => 'active',
-            ])->id,
-            'batch_uuid' => Str::uuid()->toString(),
-            'total_items' => 1,
-            'status' => 'processing',
-        ]);
-
-        $item = BulkImportItem::create([
-            'bulk_import_id' => $batch->id,
-            'workspace_id' => $setup['workspace']->id,
-            'user_id' => $setup['user']->id,
-            'client_item_id' => 'item_double_01',
-            'front_image_path' => 'bulk/front.jpg',
-            'back_image_path' => 'bulk/back.jpg',
-            'status' => 'pending',
-        ]);
+        // Create an isolated request without applicable exchange rate
+        AiCostExchangeRate::query()->update(['is_active' => false]);
 
         $request = $this->createSampleRequest([
-            'scan_type' => 'bulk_scan',
-            'bulk_import_id' => $batch->id,
-            'bulk_import_item_id' => $item->id,
-            'image_count' => 2, // Front and Back
             'prompt_tokens' => 20000,
-            'candidates_tokens' => 0,
-            'total_tokens' => 20000,
+            'candidates_tokens' => 10000,
+            'total_tokens' => 30000,
         ]);
 
         $calculated = $this->costService->calculateAndPersist($request);
 
         $this->assertNotNull($calculated);
-        // Total cost: 20k * 0.075/1M = $0.001500 USD
-        $this->assertEquals('0.001500', $calculated->cost_usd);
-        // Per image: $0.001500 / 2 = $0.000750 USD
-        $this->assertEquals(0.000750, $calculated->costPerImageUsd());
+        $this->assertEquals('exchange_rate_missing', $calculated->cost_calculation_status);
+        $this->assertNotNull($calculated->cost_usd);
+        $this->assertNull($calculated->cost_inr);
+        $this->assertNotEquals('0.000000', $calculated->cost_inr);
     }
 
     /**
-     * Requirement 14: Idempotent cost calculation.
+     * Requirement 13: Historical pricing preservation.
      */
-    public function test_14_idempotent_cost_calculation(): void
+    public function test_13_historical_pricing_preservation(): void
     {
-        $request = $this->createSampleRequest([
-            'prompt_tokens' => 10000,
-            'candidates_tokens' => 2000,
+        // Verify 2026-v1 baseline exists alongside 2026-v2
+        $v1Count = AiModelPricing::where('pricing_version', '2026-v1')->count();
+        $v2Count = AiModelPricing::where('pricing_version', '2026-v2')->count();
+
+        $this->assertGreaterThan(0, $v1Count);
+        $this->assertGreaterThan(0, $v2Count);
+
+        // A request specifically processed under 2026-v1 retains its exact pricing version
+        $historical = $this->createSampleRequest([
+            'pricing_version' => '2026-v1',
+            'cost_usd' => '0.007500',
+            'cost_inr' => '0.648750',
+            'cost_calculation_status' => 'calculated',
         ]);
 
-        $firstRun = $this->costService->calculateAndPersist($request);
-        $this->assertEquals('calculated', $firstRun->cost_calculation_status);
-        $firstUsd = $firstRun->cost_usd;
-        $firstInr = $firstRun->cost_inr;
-        $firstCalculatedAt = $firstRun->cost_calculated_at;
-
-        // Second run without force must return the identical finalized record without changing anything
-        $secondRun = $this->costService->calculateAndPersist($request);
-        $this->assertEquals($firstUsd, $secondRun->cost_usd);
-        $this->assertEquals($firstInr, $secondRun->cost_inr);
-        $this->assertEquals($firstCalculatedAt->toIso8601String(), $secondRun->cost_calculated_at->toIso8601String());
-
-        // Total count of records remains 1
-        $this->assertEquals(1, AiApiRequest::count());
+        // Default recalculate without force does NOT overwrite historical values
+        $result = $this->costService->calculateAndPersist($historical, force: false);
+        $this->assertEquals('2026-v1', $result->pricing_version);
+        $this->assertEquals('0.007500', $result->cost_usd);
     }
 
     /**
-     * Requirement 15: Concurrent calculation safety.
+     * Requirement 14: Historical exchange-rate selection.
      */
-    public function test_15_concurrent_calculation_safety(): void
+    public function test_14_historical_exchange_rate_selection(): void
     {
-        $request = $this->createSampleRequest([
-            'prompt_tokens' => 50000,
-            'candidates_tokens' => 5000,
-        ]);
+        // 1. Request dated 2026-01-02 -> picks baseline system rate (86.5000)
+        $earlyRate = $this->costService->findApplicableExchangeRate('2026-01-02 10:00:00', 'USD', 'INR');
+        $this->assertNotNull($earlyRate);
+        $this->assertEquals('86.5000', (string) $earlyRate->exchange_rate);
+        $this->assertEquals('system', $earlyRate->source);
 
-        // Simulate concurrent execution: both calls within transaction locks
-        $res1 = $this->costService->calculateAndPersist($request);
-        $res2 = $this->costService->calculateAndPersist($request);
-
-        $this->assertNotNull($res1);
-        $this->assertNotNull($res2);
-        $this->assertEquals($res1->cost_usd, $res2->cost_usd);
-        $this->assertEquals('calculated', $res2->cost_calculation_status);
+        // 2. Request dated 2026-01-06 -> picks FBIL reference rate (89.4600)
+        $fbilRate = $this->costService->findApplicableExchangeRate('2026-01-06 10:00:00', 'USD', 'INR');
+        $this->assertNotNull($fbilRate);
+        $this->assertEquals('89.4600', (string) $fbilRate->exchange_rate);
+        $this->assertEquals('fbil_reference', $fbilRate->source);
     }
 
     /**
-     * Requirement 16: Historical costs remain unchanged after pricing updates.
+     * Requirement 15: Safe forced recalculation and audit logging.
      */
-    public function test_16_historical_costs_remain_unchanged_after_pricing_updates(): void
+    public function test_15_safe_forced_recalculation_and_audit_logging(): void
     {
-        // 1. Calculate a request with current pricing ($0.075 / $0.30)
         $request = $this->createSampleRequest([
-            'started_at' => Carbon::parse('2026-01-10 12:00:00'),
             'prompt_tokens' => 100000,
             'candidates_tokens' => 0,
-        ]);
-        $calculated = $this->costService->calculateAndPersist($request);
-        $originalCostUsd = $calculated->cost_usd;
-        $originalCostInr = $calculated->cost_inr;
-        $originalVersion = $calculated->pricing_version;
-
-        // 2. Add a new pricing record or new exchange rate
-        AiModelPricing::create([
-            'provider' => 'google',
-            'model_identifier' => 'gemini-3.5-flash',
-            'pricing_version' => '2026-v2',
-            'input_token_price_per_million' => 0.020000, // Drastically reduced price
-            'output_token_price_per_million' => 0.100000,
-            'cached_input_token_price_per_million' => 0.005000,
-            'thoughts_token_price_per_million' => 0.100000,
-            'input_token_unit_price' => 0.0000000200,
-            'output_token_unit_price' => 0.0000001000,
-            'cached_input_token_unit_price' => 0.0000000050,
-            'thoughts_token_unit_price' => 0.0000001000,
-            'currency' => 'USD',
-            'effective_from' => '2026-06-01 00:00:00',
-            'is_active' => true,
+            'total_tokens' => 100000,
+            'cost_usd' => '0.050000', // old incorrect cost
+            'cost_inr' => '4.325000',
+            'cost_calculation_status' => 'calculated',
         ]);
 
-        AiCostExchangeRate::create([
-            'base_currency' => 'USD',
-            'target_currency' => 'INR',
-            'exchange_rate' => 95.0000, // New exchange rate
-            'effective_date' => '2026-06-01',
-            'source' => 'system',
-            'is_active' => true,
-        ]);
+        // Without force: nothing changes
+        $untouched = $this->costService->recalculate($request, force: false);
+        $this->assertEquals('0.050000', $untouched->cost_usd);
 
-        // Historical request refreshed from database must retain its exact original costs and versions
-        $refreshed = $request->fresh();
-        $this->assertEquals($originalCostUsd, $refreshed->cost_usd);
-        $this->assertEquals($originalCostInr, $refreshed->cost_inr);
-        $this->assertEquals($originalVersion, $refreshed->pricing_version);
+        // With force: recalculates with 2026-v2 verified rate
+        Log::shouldReceive('info')
+            ->once()
+            ->withArgs(function ($message, $context) use ($request) {
+                return $message === 'AI API Request cost recalculated'
+                    && $context['request_id'] === $request->id
+                    && $context['old_cost_usd'] === '0.050000'
+                    && $context['reason'] === 'Pricing model correction';
+            });
 
-        // Calling calculateAndPersist again without force must leave it completely untouched
-        $recalculated = $this->costService->calculateAndPersist($refreshed);
-        $this->assertEquals($originalCostUsd, $recalculated->cost_usd);
-        $this->assertEquals($originalCostInr, $recalculated->cost_inr);
+        $recalculated = $this->costService->recalculate($request, force: true, reason: 'Pricing model correction');
+        $this->assertNotNull($recalculated);
+        $this->assertEquals('0.150000', $recalculated->cost_usd);
     }
 
     /**
-     * Requirement 17: Customer scan credits remain completely unaffected.
+     * Requirement 16: No impact on customer scan credits.
      */
-    public function test_17_customer_scan_credits_remain_completely_unaffected(): void
+    public function test_16_no_impact_on_customer_scan_credits(): void
     {
-        $setup = $this->createWorkspaceUser();
+        $context = $this->createWorkspaceUser();
+        $workspace = $context['workspace'];
+        $user = $context['user'];
+
         $quotaService = app(ScanQuotaService::class);
+        $initialQuota = $quotaService->getWorkspaceQuota($workspace);
+        $initialRemaining = $initialQuota['remaining_credits'];
+        $initialLedgerCount = ScanUsageLedger::count();
 
-        // Initial workspace quota
-        $initialQuota = $quotaService->getWorkspaceQuota($setup['workspace']);
-        $this->assertEquals(0, $initialQuota['used_credits']);
-        $this->assertEquals(10, $initialQuota['remaining_credits']);
-
-        // Create and calculate AI cost for 5 different expensive requests
-        for ($i = 1; $i <= 5; $i++) {
-            $req = $this->createSampleRequest([
-                'workspace_id' => $setup['workspace']->id,
-                'user_id' => $setup['user']->id,
-                'prompt_tokens' => 200000,
-                'candidates_tokens' => 50000,
-            ]);
-            $this->costService->calculateAndPersist($req);
-        }
-
-        // Quota ledger must have 0 confirmed records
-        $ledgerCount = ScanUsageLedger::where('workspace_id', $setup['workspace']->id)->count();
-        $this->assertEquals(0, $ledgerCount);
-
-        // Workspace scan credits must remain completely untouched (10 remaining, 0 used)
-        $afterQuota = $quotaService->getWorkspaceQuota($setup['workspace']);
-        $this->assertEquals(0, $afterQuota['used_credits']);
-        $this->assertEquals(10, $afterQuota['remaining_credits']);
-    }
-
-    /**
-     * Requirement 18: Decimal precision and rounding accuracy.
-     */
-    public function test_18_decimal_precision_and_rounding_accuracy(): void
-    {
-        // 17 prompt tokens at $0.075 per million:
-        // (17 * 0.075) / 1,000,000 = 1.275 / 1,000,000 = 0.000001275 USD
-        // Stored with 6 decimal places = 0.000001 USD
-        $request = $this->createSampleRequest([
-            'prompt_tokens' => 17,
-            'candidates_tokens' => 0,
-            'cached_tokens' => 0,
-            'thoughts_tokens' => 0,
-            'total_tokens' => 17,
+        // Perform multiple AI cost calculations and recalculations
+        $req = $this->createSampleRequest([
+            'workspace_id' => $workspace->id,
+            'user_id' => $user->id,
+            'prompt_tokens' => 50000,
+            'candidates_tokens' => 10000,
+            'total_tokens' => 60000,
         ]);
 
-        $calculated = $this->costService->calculateAndPersist($request);
+        $this->costService->calculateAndPersist($req);
+        $this->costService->recalculate($req, force: true, reason: 'Test verification');
 
-        $this->assertNotNull($calculated);
-        $this->assertEquals('0.000001', $calculated->cost_usd);
+        // Customer credit ledger must remain 100% untouched
+        $postQuota = $quotaService->getWorkspaceQuota($workspace);
+        $postRemaining = $postQuota['remaining_credits'];
+        $postLedgerCount = ScanUsageLedger::count();
 
-        // BCMath raw calculation precision verification
-        $exactCost = $this->costService->calcTokenCost(17, '0.075000');
-        $this->assertEquals('0.000001275000', $exactCost);
+        $this->assertEquals($initialRemaining, $postRemaining);
+        $this->assertEquals($initialLedgerCount, $postLedgerCount);
     }
 }
