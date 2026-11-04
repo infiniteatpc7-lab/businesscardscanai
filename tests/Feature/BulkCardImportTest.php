@@ -9,6 +9,7 @@ use App\Models\BulkImportItem;
 use App\Models\Card;
 use App\Models\CardScan;
 use App\Models\Exhibition;
+use App\Models\Plan;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\BulkCardSaveService;
@@ -44,6 +45,11 @@ class BulkCardImportTest extends TestCase
 
         $workspace->users()->attach($user->id, ['role' => $role]);
         $user->forceFill(['current_workspace_id' => $workspace->id])->save();
+
+        $proPlan = Plan::where('slug', 'pro')->first();
+        if ($proPlan) {
+            $workspace->activeSubscription()->update(['plan_id' => $proPlan->id]);
+        }
 
         $tokenData = $user->createToken('test_token');
 

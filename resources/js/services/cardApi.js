@@ -507,3 +507,34 @@ export async function cancelBulkImport(uuid) {
     });
     return response.json();
 }
+
+/**
+ * Export cards via authenticated backend endpoint enforcing plan entitlements.
+ */
+export async function exportCards(format = 'csv') {
+    const response = await authFetch(`/api/cards/export?format=${format}`);
+    if (response.status === 403) {
+        const data = await response.json().catch(() => ({}));
+        return {
+            success: false,
+            forbidden: true,
+            error_code: data.error_code,
+            message: data.message || 'CSV/Excel export is not included in your current plan.'
+        };
+    }
+    if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        return { success: false, message: data.message || 'Failed to download export file.' };
+    }
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `contacts_export_${new Date().toISOString().slice(0, 10)}.${format === 'excel' ? 'xlsx' : 'csv'}`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+    return { success: true };
+}

@@ -55,7 +55,8 @@ class ScanQuotaService
             ->sum('quantity');
 
         $allowance = (int) $plan->monthly_scan_allowance;
-        $remainingCredits = max(0, $allowance - $usedCredits - $reservedCredits);
+        $isUnlimited = ($allowance === -1);
+        $remainingCredits = $isUnlimited ? -1 : max(0, $allowance - $usedCredits - $reservedCredits);
 
         return [
             'plan' => [
@@ -63,13 +64,15 @@ class ScanQuotaService
                 'name' => $plan->name,
                 'slug' => $plan->slug,
                 'monthly_scan_allowance' => $allowance,
+                'is_unlimited' => $isUnlimited,
                 'price' => (float) $plan->price,
-                'currency' => $plan->currency,
+                'currency' => $plan->currency ?? 'INR',
                 'features' => $plan->features ?? [],
             ],
             'subscription_status' => $subscription->status,
             'monthly_allowance' => $allowance,
             'allowance' => $allowance,
+            'is_unlimited' => $isUnlimited,
             'used_credits' => $usedCredits,
             'used' => $usedCredits,
             'reserved_credits' => $reservedCredits,
@@ -132,9 +135,10 @@ class ScanQuotaService
                 ->where('idempotency_key', '!=', $idempotencyKey)
                 ->sum('quantity');
 
-            $remaining = max(0, $allowance - $used - $reserved);
+            $isUnlimited = ($allowance === -1);
+            $remaining = $isUnlimited ? -1 : max(0, $allowance - $used - $reserved);
 
-            if ($remaining < $quantity) {
+            if (! $isUnlimited && $remaining < $quantity) {
                 Log::warning('Scan quota exceeded during reservation attempt', [
                     'workspace_id' => $workspace->id,
                     'user_id' => $user?->id,

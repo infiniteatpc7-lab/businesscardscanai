@@ -144,6 +144,19 @@ class ExhibitionController extends Controller
         $workspace = $request->attributes->get('workspace');
         $user = $request->user();
 
+        // Enforce plan active exhibition limits
+        if (! $workspace->canCreateMoreExhibitions()) {
+            $limit = $workspace->currentPlan()->max_active_exhibitions ?? 1;
+
+            return response()->json([
+                'success' => false,
+                'error_code' => 'PLAN_LIMIT_EXCEEDED',
+                'message' => "Active exhibition limit of {$limit} reached for this workspace. Please upgrade your plan to create more exhibitions.",
+                'limit' => 'max_active_exhibitions',
+                'max_allowed' => $limit,
+            ], 403);
+        }
+
         $exhibition = Exhibition::create([
             'workspace_id' => $workspace->id,
             'created_by_user_id' => $user->id,

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Mail\WorkspaceInvitationMail;
 use App\Models\Card;
+use App\Models\Plan;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Models\WorkspaceInvitation;
@@ -31,6 +32,11 @@ class WorkspaceTeamManagementTest extends TestCase
 
         $workspace->users()->attach($user->id, ['role' => $role]);
         $user->forceFill(['current_workspace_id' => $workspace->id])->save();
+
+        $businessPlan = Plan::where('slug', 'business')->first();
+        if ($businessPlan) {
+            $workspace->activeSubscription()->update(['plan_id' => $businessPlan->id]);
+        }
 
         $tokenData = $user->createToken('test_token');
 

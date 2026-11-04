@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Plan;
 use App\Models\Workspace;
 use App\Services\ScanQuotaService;
 use Illuminate\Http\JsonResponse;
@@ -28,8 +29,16 @@ class CustomerSubscriptionController extends Controller
         $plan = $subscription->plan;
         $quota = $quotaService->getWorkspaceQuota($workspace);
 
+        $features = is_array($plan->features) ? $plan->features : [];
+        $entitlements = [];
+        foreach (Plan::getAllValidFeatureKeys() as $key) {
+            $entitlements[$key] = in_array($key, $features, true);
+        }
+
         return response()->json([
             'success' => true,
+            'currency' => 'INR',
+            'currency_symbol' => '₹',
             'subscription' => [
                 'id' => $subscription->id,
                 'status' => $subscription->status,
@@ -44,12 +53,24 @@ class CustomerSubscriptionController extends Controller
                 'id' => $plan->id,
                 'name' => $plan->name,
                 'slug' => $plan->slug,
+                'description' => $plan->description,
                 'price' => (float) $plan->price,
-                'currency' => $plan->currency,
-                'billing_interval' => $plan->billing_interval,
+                'formatted_price' => '₹'.number_format((float) $plan->price, 2),
+                'currency' => 'INR',
+                'currency_symbol' => '₹',
+                'billing_interval' => in_array($plan->invoice_interval, ['year', 'yearly'], true) ? 'year' : 'month',
                 'monthly_scan_allowance' => (int) $plan->monthly_scan_allowance,
-                'features' => $plan->features ?? [],
+                'max_team_members' => (int) ($plan->max_team_members ?? 1),
+                'max_workspaces' => (int) ($plan->max_workspaces ?? 1),
+                'max_active_exhibitions' => (int) ($plan->max_active_exhibitions ?? 1),
+                'is_unlimited_scans' => ((int) $plan->monthly_scan_allowance) === -1,
+                'is_unlimited_team' => ((int) $plan->max_team_members) === -1,
+                'is_unlimited_workspaces' => ((int) $plan->max_workspaces) === -1,
+                'is_unlimited_exhibitions' => ((int) $plan->max_active_exhibitions) === -1,
+                'features' => $features,
+                'entitlements' => $entitlements,
                 'is_active' => (bool) $plan->is_active,
+                'is_default' => (bool) $plan->is_default,
             ],
             'quota' => $quota,
         ]);

@@ -102,6 +102,22 @@ class SubscriptionAndQuotaTest extends TestCase
         $this->assertEquals('free', $subscription->plan->slug);
         $this->assertEquals(50, $subscription->plan->monthly_scan_allowance);
         $this->assertEquals('system_free', $subscription->assignment_source);
+        $this->assertEquals('INR', $subscription->plan->currency);
+    }
+
+    public function test_inr_currency_defaults_and_formatting(): void
+    {
+        $data = $this->createCustomerWithWorkspace();
+
+        $response = $this->withHeader('Authorization', "Bearer {$data['token']}")
+            ->getJson('/api/subscription/current');
+
+        $response->assertOk()
+            ->assertJsonPath('currency', 'INR')
+            ->assertJsonPath('currency_symbol', '₹')
+            ->assertJsonPath('plan.currency', 'INR')
+            ->assertJsonPath('plan.currency_symbol', '₹')
+            ->assertJsonPath('plan.formatted_price', '₹0.00');
     }
 
     public function test_shared_workspace_quota_across_members(): void
@@ -157,6 +173,8 @@ class SubscriptionAndQuotaTest extends TestCase
         $response->assertOk()
             ->assertJsonStructure([
                 'success',
+                'currency',
+                'currency_symbol',
                 'subscription' => [
                     'id',
                     'status',
@@ -171,6 +189,11 @@ class SubscriptionAndQuotaTest extends TestCase
                     'price',
                     'currency',
                     'monthly_scan_allowance',
+                    'max_team_members',
+                    'max_workspaces',
+                    'max_active_exhibitions',
+                    'features',
+                    'entitlements',
                 ],
                 'quota' => [
                     'allowance',
@@ -328,8 +351,11 @@ class SubscriptionAndQuotaTest extends TestCase
             'name' => 'Micro 1',
             'slug' => 'micro-1-'.uniqid(),
             'price' => 0,
-            'currency' => 'USD',
+            'currency' => 'INR',
             'monthly_scan_allowance' => 1,
+            'max_team_members' => 1,
+            'max_workspaces' => 1,
+            'max_active_exhibitions' => 1,
             'is_active' => true,
         ]);
 
@@ -364,6 +390,141 @@ class SubscriptionAndQuotaTest extends TestCase
             ->assertJsonPath('quota.allowance', 1)
             ->assertJsonPath('quota.used', 1)
             ->assertJsonPath('quota.remaining', 0);
+    }
+
+    public function test_bulk_import_gated_by_plan_entitlement(): void
+    {
+        $data = $this->createCustomerWithWorkspace();
+        $workspace = $data['workspace'];
+
+        // Free plan does not have bulk_import
+        $response = $this->withHeader('Authorization', "Bearer {$data['token']}")
+            ->postJson('/api/bulk-imports', [
+                'exhibition_id' => $data['exhibition']->id,
+            ]);
+
+        $response->assertStatus(403)
+            ->assertJsonPath('error_code', 'FEATURE_NOT_INCLUDED')
+            ->assertJsonPath('feature', 'bulk_import');
+
+        // Upgrade to Pro which includes bulk_import
+        $proPlan = Plan::where('slug', 'pro')->firstOrFail();
+        $workspace->activeSubscription()->update(['plan_id' => $proPlan->id]);
+
+        $successResponse = $this->withHeader('Authorization', "Bearer {$data['token']}")
+            ->postJson('/api/bulk-imports', [
+                'exhibition_id' => $data['exhibition']->id,
+                'expected_count' => 5,
+            ]);
+
+        $successResponse->assertCreated()
+            ->assertJsonPath('success', true);
+    }
+
+    public function test_export_csv_gated_by_plan_entitlement(): void
+    {
+        $data = $this->createCustomerWithWorkspace();
+        $workspace = $data['workspace'];
+
+        // Create a card
+        Card::create([
+            'workspace_id' => $workspace->id,
+            'user_id' => $data['user']->id,
+            'name' => 'Lead to Export',
+            'company' => 'Exporter LLC',
+        ]);
+
+        // Default Free plan has export_csv enabled
+        $response = $this->withHeader('Authorization', "Bearer {$data['token']}")
+            ->get('/api/cards/export');
+
+        $response->assertOk();
+        $this->assertStringContainsString('text/csv', $response->headers->get('Content-Type'));
+
+        // Switch to a plan without export_csv
+        $restrictedPlan = Plan::create([
+            'name' => 'No Export Plan',
+            'slug' => 'no-export-'.uniqid(),
+            'price' => 0,
+            'currency' => 'INR',
+            'monthly_scan_allowance' => 50,
+            'max_team_members' => 1,
+            'max_workspaces' => 1,
+            'max_active_exhibitions' => 1,
+            'features' => ['single_card_scan'],
+            'is_active' => true,
+        ]);
+
+        $workspace->activeSubscription()->update(['plan_id' => $restrictedPlan->id]);
+
+        $forbiddenResponse = $this->withHeader('Authorization', "Bearer {$data['token']}")
+            ->getJson('/api/cards/export');
+
+        $forbiddenResponse->assertStatus(403)
+            ->assertJsonPath('error_code', 'FEATURE_NOT_INCLUDED')
+            ->assertJsonPath('feature', 'export_csv');
+    }
+
+    public function test_team_member_limit_enforcement(): void
+    {
+        $data = $this->createCustomerWithWorkspace();
+        $workspace = $data['workspace'];
+
+        // Plan with max_team_members = 1 (only the owner)
+        $soloPlan = Plan::create([
+            'name' => 'Solo',
+            'slug' => 'solo-'.uniqid(),
+            'price' => 0,
+            'currency' => 'INR',
+            'monthly_scan_allowance' => 50,
+            'max_team_members' => 1,
+            'max_workspaces' => 1,
+            'max_active_exhibitions' => 1,
+            'is_active' => true,
+        ]);
+        $workspace->activeSubscription()->update(['plan_id' => $soloPlan->id]);
+
+        $inviteRes = $this->withHeader('Authorization', "Bearer {$data['token']}")
+            ->postJson("/api/workspaces/{$workspace->id}/invitations", [
+                'email' => 'colleague@example.com',
+                'role' => 'member',
+            ]);
+
+        $inviteRes->assertStatus(403)
+            ->assertJsonPath('error_code', 'PLAN_LIMIT_EXCEEDED')
+            ->assertJsonPath('limit', 'max_team_members');
+    }
+
+    public function test_workspace_creation_limit_enforcement(): void
+    {
+        $data = $this->createCustomerWithWorkspace();
+
+        // Default Free plan has max_workspaces = 1. Owner already owns 1 workspace.
+        $createWsRes = $this->withHeader('Authorization', "Bearer {$data['token']}")
+            ->postJson('/api/workspaces', [
+                'name' => 'Second Workspace',
+            ]);
+
+        $createWsRes->assertStatus(403)
+            ->assertJsonPath('error_code', 'PLAN_LIMIT_EXCEEDED')
+            ->assertJsonPath('limit', 'max_workspaces');
+    }
+
+    public function test_active_exhibitions_limit_enforcement(): void
+    {
+        $data = $this->createCustomerWithWorkspace();
+        $workspace = $data['workspace'];
+
+        // Free plan has max_active_exhibitions = 1. Workspace already has 1 active exhibition (CES 2026).
+        $createExpoRes = $this->withHeader('Authorization', "Bearer {$data['token']}")
+            ->postJson('/api/exhibitions', [
+                'name' => 'Second Active Expo',
+                'status' => 'active',
+            ]);
+
+        $createExpoRes->assertStatus(403)
+            ->assertJsonPath('error_code', 'PLAN_LIMIT_EXCEEDED')
+            ->assertJsonPath('limit', 'max_active_exhibitions');
     }
 
     public function test_bulk_import_per_item_accounting_and_skipped_zero_deduction(): void
@@ -433,29 +594,38 @@ class SubscriptionAndQuotaTest extends TestCase
         $this->assertEquals(0, ScanUsageLedger::where('bulk_import_item_id', $item2->id)->count());
     }
 
-    public function test_platform_admin_can_manage_plans(): void
+    public function test_platform_admin_can_manage_plans_in_inr(): void
     {
         $adminData = $this->createPlatformAdmin();
 
         // 1. List plans
         $listRes = $this->withHeader('Authorization', "Bearer {$adminData['token']}")
             ->getJson('/api/platform-admin/plans');
-        $listRes->assertOk()->assertJsonPath('success', true);
+        $listRes->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('currency', 'INR');
 
         // 2. Create custom plan
         $createRes = $this->withHeader('Authorization', "Bearer {$adminData['token']}")
             ->postJson('/api/platform-admin/plans', [
                 'name' => 'Enterprise Custom',
                 'slug' => 'enterprise-custom-'.uniqid(),
-                'price' => 199.00,
-                'currency' => 'USD',
+                'description' => 'Custom enterprise plan for large exhibitors',
+                'price' => 4999.00,
+                'currency' => 'INR',
+                'invoice_interval' => 'month',
                 'monthly_scan_allowance' => 10000,
-                'features' => ['Unlimited OCR', 'Priority Support'],
+                'max_team_members' => 50,
+                'max_workspaces' => 10,
+                'max_active_exhibitions' => 20,
+                'features' => ['single_card_scan', 'high_accuracy_ocr', 'priority_support', 'bulk_import'],
                 'is_active' => true,
             ]);
 
         $createRes->assertCreated()->assertJsonPath('success', true);
         $planId = $createRes->json('plan.id');
+        $this->assertEquals('INR', $createRes->json('plan.currency'));
+        $this->assertEquals(4999.00, $createRes->json('plan.price'));
 
         // Verify audit log for plan creation
         $this->assertTrue(PlatformAuditLog::where('action', 'plan.create')->exists());
@@ -464,10 +634,16 @@ class SubscriptionAndQuotaTest extends TestCase
         $updateRes = $this->withHeader('Authorization', "Bearer {$adminData['token']}")
             ->putJson("/api/platform-admin/plans/{$planId}", [
                 'name' => 'Enterprise Updated',
-                'price' => 249.00,
+                'price' => 5999.00,
                 'monthly_scan_allowance' => 15000,
+                'max_team_members' => 100,
+                'max_workspaces' => 20,
+                'max_active_exhibitions' => 30,
+                'features' => ['single_card_scan', 'high_accuracy_ocr', 'priority_support', 'bulk_import', 'export_excel'],
             ]);
-        $updateRes->assertOk()->assertJsonPath('plan.name', 'Enterprise Updated');
+        $updateRes->assertOk()
+            ->assertJsonPath('plan.name', 'Enterprise Updated');
+        $this->assertEquals(5999.00, $updateRes->json('plan.price'));
 
         // 4. Toggle plan status
         $toggleRes = $this->withHeader('Authorization', "Bearer {$adminData['token']}")
@@ -502,6 +678,39 @@ class SubscriptionAndQuotaTest extends TestCase
         $this->assertTrue(PlatformAuditLog::where('action', 'workspace.plan_change')
             ->where('target_id', $workspace->id)
             ->exists());
+    }
+
+    public function test_mid_cycle_allowance_change_safety(): void
+    {
+        $customerData = $this->createCustomerWithWorkspace();
+        $workspace = $customerData['workspace'];
+        $quotaService = app(ScanQuotaService::class);
+
+        // Consume 5 credits under Free plan (50 credits allowance)
+        for ($i = 0; $i < 5; $i++) {
+            $quotaService->recordSuccessfulScan(
+                $workspace,
+                $customerData['user'],
+                'single_scan',
+                "cycle_test_{$i}"
+            );
+        }
+
+        $quotaBefore = $quotaService->getWorkspaceQuota($workspace);
+        $this->assertEquals(5, $quotaBefore['used']);
+        $this->assertEquals(45, $quotaBefore['remaining']);
+
+        // Mid-cycle upgrade to Pro (500 credits)
+        $proPlan = Plan::where('slug', 'pro')->firstOrFail();
+        $workspace->activeSubscription()->update(['plan_id' => $proPlan->id]);
+
+        $quotaAfter = $quotaService->getWorkspaceQuota($workspace->fresh());
+        $this->assertEquals(5, $quotaAfter['used']);
+        $this->assertEquals(495, $quotaAfter['remaining']);
+        $this->assertEquals(500, $quotaAfter['allowance']);
+
+        // Historical records preserved
+        $this->assertEquals(5, ScanUsageLedger::where('workspace_id', $workspace->id)->where('status', 'confirmed')->count());
     }
 
     public function test_customer_cannot_access_platform_admin_plan_routes(): void

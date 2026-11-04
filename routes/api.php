@@ -57,6 +57,7 @@ Route::middleware('api.auth')->group(function () {
     Route::post('/scan', [CardController::class, 'scan'])->middleware('throttle:20,1');
     Route::post('/cards/upload-image', [CardController::class, 'uploadImage'])->middleware('throttle:30,1');
     Route::get('/cards', [CardController::class, 'index']);
+    Route::get('/cards/export', [CardController::class, 'export']);
     Route::post('/cards', [CardController::class, 'store']);
     Route::get('/cards/{id}', [CardController::class, 'show']);
     Route::put('/cards/{id}', [CardController::class, 'update']);
@@ -116,6 +117,7 @@ Route::prefix('platform-admin')->group(function () {
 
         // SaaS Plans Management
         Route::get('/plans', [AdminPlanController::class, 'index']);
+        Route::get('/plans/features', [AdminPlanController::class, 'features']);
         Route::post('/plans', [AdminPlanController::class, 'store']);
         Route::put('/plans/{id}', [AdminPlanController::class, 'update']);
         Route::post('/plans/{id}/toggle-status', [AdminPlanController::class, 'toggleStatus']);

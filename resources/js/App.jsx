@@ -18,7 +18,8 @@ import {
     fetchWorkspaces,
     acceptInvitation,
     fetchCurrentExhibition,
-    fetchExhibitions
+    fetchExhibitions,
+    exportCards
 } from './services/cardApi';
 
 function MobileAppContent() {
@@ -188,35 +189,26 @@ function MobileAppContent() {
         setActiveTab('cards');
     };
 
-    // Export CSV Helper
-    const handleExportCSV = () => {
+    // Export CSV Helper with backend plan entitlement check
+    const handleExportCSV = async () => {
         if (cards.length === 0) {
             showToast('No cards to export', 'info');
             return;
         }
 
-        const headers = ['ID', 'Company', 'Company English', 'Name', 'Phone', 'Email', 'Address', 'Accuracy Score', 'Created At'];
-        const rows = cards.map((c) => [
-            c.id,
-            `"${(c.company || '').replace(/"/g, '""')}"`,
-            `"${(c.company_english || '').replace(/"/g, '""')}"`,
-            `"${(c.name || '').replace(/"/g, '""')}"`,
-            `"${(Array.isArray(c.phone) ? c.phone.join('; ') : c.phone || '').replace(/"/g, '""')}"`,
-            `"${(c.email || '').replace(/"/g, '""')}"`,
-            `"${(c.address || '').replace(/"/g, '""')}"`,
-            c.accuracy_score || 95,
-            c.created_at || ''
-        ]);
-
-        const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement('a');
-        link.setAttribute('href', encodedUri);
-        link.setAttribute('download', `business_cards_${new Date().toISOString().slice(0, 10)}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        showToast('CSV Exported successfully!');
+        try {
+            const res = await exportCards('csv');
+            if (res.forbidden) {
+                showToast(res.message, 'error');
+            } else if (res.success) {
+                showToast('CSV Exported successfully!');
+            } else {
+                showToast(res.message || 'Export failed', 'error');
+            }
+        } catch (err) {
+            console.error('Export error:', err);
+            showToast('Failed to export cards', 'error');
+        }
     };
 
     return (

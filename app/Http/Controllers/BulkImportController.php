@@ -51,6 +51,15 @@ class BulkImportController extends Controller
         $workspace = $request->attributes->get('workspace');
         $user = $request->user();
 
+        if (! $workspace->hasFeature('bulk_import')) {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'FEATURE_NOT_INCLUDED',
+                'message' => 'Bulk card import is not included in your current plan. Please upgrade to Pro or Business.',
+                'feature' => 'bulk_import',
+            ], 403);
+        }
+
         $validated = $request->validate([
             'exhibition_id' => 'required|integer',
             'expected_count' => 'nullable|integer|min:1|max:200',
@@ -128,6 +137,17 @@ class BulkImportController extends Controller
     public function uploadItem(Request $request, string $uuid, CardImageService $imageService): JsonResponse
     {
         $batch = $this->resolveBatch($request, $uuid);
+        /** @var Workspace $workspace */
+        $workspace = $request->attributes->get('workspace') ?? $batch->workspace;
+
+        if ($workspace && ! $workspace->hasFeature('bulk_import')) {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'FEATURE_NOT_INCLUDED',
+                'message' => 'Bulk card import is not included in your current plan. Please upgrade to Pro or Business.',
+                'feature' => 'bulk_import',
+            ], 403);
+        }
         $user = $request->user();
 
         if ($batch->isCancelled()) {

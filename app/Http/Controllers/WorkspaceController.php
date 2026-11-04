@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Mail\WorkspaceInvitationMail;
+use App\Models\Plan;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Models\WorkspaceInvitation;
@@ -51,6 +52,24 @@ class WorkspaceController extends Controller
         ]);
 
         $user = $request->user();
+
+        // Enforce plan workspace limits
+        $primaryWs = ($user->current_workspace_id ? Workspace::find($user->current_workspace_id) : null) ?? Workspace::where('owner_id', $user->id)->first();
+        $plan = $primaryWs?->currentPlan() ?? Plan::getDefaultPlan();
+        if ($plan && ! $plan->isUnlimited('max_workspaces')) {
+            $maxWs = $plan->max_workspaces ?? 1;
+            $ownedCount = Workspace::where('owner_id', $user->id)->count();
+            if ($ownedCount >= $maxWs) {
+                return response()->json([
+                    'success' => false,
+                    'error_code' => 'PLAN_LIMIT_EXCEEDED',
+                    'message' => "Workspace limit of {$maxWs} reached for your account. Please upgrade your plan to create more workspaces.",
+                    'limit' => 'max_workspaces',
+                    'current_count' => $ownedCount,
+                    'max_allowed' => $maxWs,
+                ], 403);
+            }
+        }
 
         $result = DB::transaction(function () use ($validated, $user) {
             $baseSlug = Str::slug($validated['name']) ?: 'workspace';
@@ -174,6 +193,19 @@ class WorkspaceController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => "Your role ({$actorRole}) does not have permission to invite a {$validated['role']}.",
+            ], 403);
+        }
+
+        // Enforce plan team member limits
+        if (! $workspace->canInviteMoreMembers()) {
+            $limit = $workspace->currentPlan()->max_team_members ?? 1;
+
+            return response()->json([
+                'success' => false,
+                'error_code' => 'PLAN_LIMIT_EXCEEDED',
+                'message' => "Team member limit of {$limit} reached for this workspace. Please upgrade your plan to invite more members.",
+                'limit' => 'max_team_members',
+                'max_allowed' => $limit,
             ], 403);
         }
 

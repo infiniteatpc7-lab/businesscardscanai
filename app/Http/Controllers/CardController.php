@@ -1210,4 +1210,87 @@ EOT;
 
         return $fallback;
     }
+
+    /**
+     * Export workspace contacts to CSV.
+     * Enforces plan entitlement for 'export_csv'.
+     */
+    public function export(Request $request)
+    {
+        /** @var Workspace $workspace */
+        $workspace = $request->attributes->get('workspace');
+        $role = $request->attributes->get('workspace_role');
+        $user = $request->user();
+
+        if (! $workspace->hasFeature('export_csv')) {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'FEATURE_NOT_INCLUDED',
+                'message' => 'CSV/Excel export is not included in your current plan. Please upgrade to Pro or Business.',
+                'feature' => 'export_csv',
+            ], 403);
+        }
+
+        $query = Card::forWorkspace($workspace->id)->with(['exhibitions']);
+
+        if ($role === 'member') {
+            $query->whereHas('scans', function ($sq) use ($workspace, $user) {
+                $sq->where('workspace_id', $workspace->id)
+                    ->where('user_id', $user->id);
+            });
+        }
+
+        $cards = $query->latest('id')->get();
+
+        $headers = [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="contacts_export_'.now()->format('Y-m-d').'.csv"',
+        ];
+
+        $callback = function () use ($cards) {
+            $output = fopen('php://output', 'w');
+            fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
+
+            fputcsv($output, [
+                'ID',
+                'Name',
+                'Name (English)',
+                'Company',
+                'Company (English)',
+                'Designation',
+                'Department',
+                'Phone',
+                'Email',
+                'Website',
+                'Address',
+                'Exhibitions',
+                'Created At',
+            ]);
+
+            foreach ($cards as $card) {
+                $phones = is_array($card->phone) ? implode('; ', $card->phone) : (string) $card->phone;
+                $exhibitionNames = $card->exhibitions->pluck('name')->implode('; ');
+
+                fputcsv($output, [
+                    $card->id,
+                    $card->name,
+                    $card->name_english,
+                    $card->company,
+                    $card->company_english,
+                    $card->designation,
+                    $card->department,
+                    $phones,
+                    $card->email,
+                    $card->website,
+                    $card->address,
+                    $exhibitionNames,
+                    $card->created_at?->toIso8601String(),
+                ]);
+            }
+
+            fclose($output);
+        };
+
+        return response()->stream($callback, 200, $headers);
+    }
 }

@@ -185,7 +185,7 @@ export default function WorkspaceDetailDrawer({
                                     >
                                         {availablePlans.map((p) => (
                                             <option key={p.id} value={p.id}>
-                                                {p.name} ({p.monthly_scan_allowance.toLocaleString()} scans - ${p.price}/mo)
+                                                {p.name} ({p.monthly_scan_allowance === -1 ? 'Unlimited' : p.monthly_scan_allowance.toLocaleString()} scans - {p.price == 0 ? 'Free' : `₹${Number(p.price).toLocaleString('en-IN')}`}/mo)
                                             </option>
                                         ))}
                                     </select>

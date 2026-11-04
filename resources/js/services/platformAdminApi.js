@@ -155,6 +155,10 @@ export async function fetchAdminPlans() {
     return adminFetch('/api/platform-admin/plans');
 }
 
+export async function fetchAdminPlanFeatures() {
+    return adminFetch('/api/platform-admin/plans/features');
+}
+
 export async function createAdminPlan(payload) {
     return adminFetch('/api/platform-admin/plans', {
         method: 'POST',

@@ -146,6 +146,47 @@ class Workspace extends Model
     }
 
     /**
+     * Check if current workspace plan includes a specific feature key.
+     */
+    public function hasFeature(string $featureKey): bool
+    {
+        return $this->currentPlan()->hasFeature($featureKey);
+    }
+
+    /**
+     * Check if the workspace can invite more team members according to plan limit.
+     */
+    public function canInviteMoreMembers(): bool
+    {
+        $plan = $this->currentPlan();
+        if ($plan->isUnlimited('max_team_members')) {
+            return true;
+        }
+
+        $limit = $plan->max_team_members ?? 1;
+        $activeMembers = $this->users()->count();
+        $pendingInvites = $this->invitations()->whereNull('accepted_at')->count();
+
+        return ($activeMembers + $pendingInvites) < $limit;
+    }
+
+    /**
+     * Check if the workspace can create more active exhibitions according to plan limit.
+     */
+    public function canCreateMoreExhibitions(): bool
+    {
+        $plan = $this->currentPlan();
+        if ($plan->isUnlimited('max_active_exhibitions')) {
+            return true;
+        }
+
+        $limit = $plan->max_active_exhibitions ?? 1;
+        $activeCount = $this->exhibitions()->whereIn('status', ['active', 'upcoming'])->count();
+
+        return $activeCount < $limit;
+    }
+
+    /**
      * Get all scan usage ledger entries for this workspace.
      */
     public function scanUsageLedger(): HasMany
