@@ -19,7 +19,8 @@ import {
     Save,
     RotateCcw,
     Download,
-    Users
+    Users,
+    Share2
 } from 'lucide-react';
 import SwipeableCardItem from '../components/cards/SwipeableCardItem';
 import CardFormEditor from '../components/scanner/CardFormEditor';
@@ -186,6 +187,54 @@ export default function MobileCardsPage({
         } catch (err) {
             console.error('Image download error:', err);
             showToast('Failed to download card image', 'error');
+        }
+    };
+
+    const handleShareCard = async (targetCard) => {
+        if (!targetCard) return;
+        const name = targetCard.name || targetCard.company || 'Business Contact';
+        const company = targetCard.company || targetCard.company_english || '';
+        const phone = Array.isArray(targetCard.phone) && targetCard.phone[0] ? targetCard.phone[0] : (typeof targetCard.phone === 'string' ? targetCard.phone : '');
+        const email = targetCard.email || '';
+        const address = targetCard.address || '';
+        const website = targetCard.website || '';
+
+        const lines = [
+            name,
+            company && company !== name ? `Company: ${company}` : '',
+            targetCard.designation ? `Designation: ${targetCard.designation}` : '',
+            phone ? `Phone: ${phone}` : '',
+            email ? `Email: ${email}` : '',
+            website ? `Website: ${website}` : '',
+            address ? `Address: ${address}` : '',
+        ].filter(Boolean);
+
+        const shareText = lines.join('\n');
+
+        if (navigator.share) {
+            try {
+                await navigator.share({
+                    title: name,
+                    text: shareText,
+                });
+                showToast('Card shared successfully');
+                return;
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    if (navigator.clipboard) {
+                        await navigator.clipboard.writeText(shareText);
+                        showToast('Contact copied to clipboard');
+                    }
+                }
+                return;
+            }
+        }
+
+        if (navigator.clipboard) {
+            await navigator.clipboard.writeText(shareText);
+            showToast('Contact copied to clipboard');
+        } else {
+            showToast('Sharing not supported on this browser');
         }
     };
 
@@ -392,8 +441,8 @@ export default function MobileCardsPage({
                         className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[11px] font-semibold transition-all active:scale-95 shrink-0"
                         title="Export CSV"
                     >
-                        <span>Export CSV</span>
                         <FileSpreadsheet className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
+                        <span>Export CSV</span>
                     </button>
                 </div>
 
@@ -821,37 +870,47 @@ export default function MobileCardsPage({
                                 </div>
 
                                 {/* 1-Tap Action Pills */}
-                                <div className="grid grid-cols-2 gap-2 pt-1">
+                                <div className="grid grid-cols-3 gap-2 pt-1">
                                     <button
                                         onClick={() => {
                                             downloadVCard(selectedCard);
                                             showToast('vCard downloaded for phone contacts');
                                         }}
-                                        className="py-3 px-3 rounded-2xl bg-zinc-100 hover:bg-zinc-200 text-zinc-900 text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                                        className="py-3 px-2 rounded-2xl bg-zinc-100 hover:bg-zinc-200 text-zinc-900 text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1"
+                                        title="Save to Phone Contacts"
                                     >
                                         <UserPlus className="w-4 h-4" />
-                                        <span>Save to Contacts</span>
+                                        <span>Save</span>
                                     </button>
 
                                     {Array.isArray(selectedCard.phone) && selectedCard.phone[0] && (
                                         isLandlineNumber(selectedCard.phone[0]) ? (
                                             <a
                                                 href={`tel:${selectedCard.phone[0]}`}
-                                                className="py-3 px-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                                                className="py-3 px-2 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1 shadow-sm"
                                             >
                                                 <Phone className="w-4 h-4" />
-                                                <span>Call Office</span>
+                                                <span>Call</span>
                                             </a>
                                         ) : (
                                             <button
                                                 onClick={() => openWhatsApp(selectedCard.phone[0], selectedCard)}
-                                                className="py-3 px-3 rounded-2xl bg-[#0F9D58] hover:bg-[#0b8043] text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                                                className="py-3 px-2 rounded-2xl bg-[#0F9D58] hover:bg-[#0b8043] text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1 shadow-sm"
                                             >
                                                 <MessageCircle className="w-4 h-4" />
                                                 <span>WhatsApp</span>
                                             </button>
                                         )
                                     )}
+
+                                    <button
+                                        onClick={() => handleShareCard(selectedCard)}
+                                        className="py-3 px-2 rounded-2xl bg-zinc-100 hover:bg-zinc-200 text-zinc-900 text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1"
+                                        title="Share Card via WhatsApp, Email, etc."
+                                    >
+                                        <Share2 className="w-4 h-4 text-zinc-700" />
+                                        <span>Share</span>
+                                    </button>
                                 </div>
 
                                 {/* Delete Action & Close in Modal */}

@@ -5,7 +5,8 @@ import {
     Phone,
     MapPin,
     User,
-    UserPlus
+    UserPlus,
+    Share2
 } from 'lucide-react';
 import {
     downloadVCard,
@@ -45,6 +46,61 @@ export default function SwipeableCardItem({
     const primaryScanner = Array.isArray(card.scanners) && card.scanners.length > 0
         ? card.scanners[0]
         : (card.user ? { id: card.user.id, name: card.user.name } : null);
+
+    const formattedDateTime = (() => {
+        const d = new Date(card.created_at || Date.now());
+        const datePart = d.toLocaleDateString();
+        const timePart = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+        return `${datePart} · ${timePart}`;
+    })();
+
+    const handleShareCard = async (e) => {
+        e.stopPropagation();
+        const name = card.name || card.company || 'Business Contact';
+        const company = card.company || card.company_english || '';
+        const phone = primaryPhone || '';
+        const email = card.email || '';
+        const address = card.address || '';
+        const website = card.website || '';
+
+        const lines = [
+            name,
+            company && company !== name ? `Company: ${company}` : '',
+            card.designation ? `Designation: ${card.designation}` : '',
+            phone ? `Phone: ${phone}` : '',
+            email ? `Email: ${email}` : '',
+            website ? `Website: ${website}` : '',
+            address ? `Address: ${address}` : '',
+        ].filter(Boolean);
+
+        const shareText = lines.join('\n');
+
+        if (navigator.share) {
+            try {
+                await navigator.share({
+                    title: name,
+                    text: shareText,
+                });
+                showToast?.('Card shared successfully');
+                return;
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    if (navigator.clipboard) {
+                        await navigator.clipboard.writeText(shareText);
+                        showToast?.('Contact copied to clipboard');
+                    }
+                }
+                return;
+            }
+        }
+
+        if (navigator.clipboard) {
+            await navigator.clipboard.writeText(shareText);
+            showToast?.('Contact copied to clipboard');
+        } else {
+            showToast?.('Sharing not supported on this browser');
+        }
+    };
 
     // Thresholds
     const ACTION_THRESHOLD = 90; // Reveals action
@@ -297,13 +353,13 @@ export default function SwipeableCardItem({
                     </div>
                 )}
 
-                {/* Bottom Bar: Date & 1-Tap Quick Actions */}
-                <div className="pt-2 border-t border-zinc-100 flex items-center justify-between">
-                    <span className="text-[10px] text-zinc-400 font-mono">
-                        {new Date(card.created_at || Date.now()).toLocaleDateString()}
+                {/* Bottom Bar: Date/Time & 1-Tap Quick Actions */}
+                <div className="pt-2 border-t border-zinc-100 flex items-center justify-between gap-1">
+                    <span className="text-[10px] text-zinc-400 font-mono tracking-tight shrink-0">
+                        {formattedDateTime}
                     </span>
 
-                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                         {/* Phone Call (Highlighted if landline) */}
                         {primaryPhone && (
                             <a
@@ -340,6 +396,15 @@ export default function SwipeableCardItem({
                             title="Save to Phone Contacts"
                         >
                             <UserPlus className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Share Card (WhatsApp, Mail, Messages & all sharing apps) */}
+                        <button
+                            onClick={handleShareCard}
+                            className="w-8 h-8 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 flex items-center justify-center transition-all active:scale-95"
+                            title="Share Contact"
+                        >
+                            <Share2 className="w-3.5 h-3.5" />
                         </button>
                     </div>
                 </div>
