@@ -69,6 +69,7 @@ class AuthController extends Controller
                 'slug' => $result['workspace']->slug,
                 'role' => 'owner',
                 'plan_name' => 'Free',
+                'monthly_scan_allowance' => 5,
             ],
         ], 201);
     }
@@ -113,6 +114,7 @@ class AuthController extends Controller
                 'slug' => $workspace->slug,
                 'role' => $workspace->getUserRole($user),
                 'plan_name' => $workspace->activeSubscription()?->plan?->name ?? 'Free',
+                'monthly_scan_allowance' => (int) ($workspace->activeSubscription()?->plan?->monthly_scan_allowance ?? 5),
             ] : null,
         ]);
     }
@@ -170,6 +172,7 @@ class AuthController extends Controller
                 'slug' => $workspace->slug,
                 'role' => $role,
                 'plan_name' => $workspace->activeSubscription()?->plan?->name ?? 'Free',
+                'monthly_scan_allowance' => (int) ($workspace->activeSubscription()?->plan?->monthly_scan_allowance ?? 5),
             ],
             'workspaces' => $allWorkspaces,
         ]);
@@ -204,6 +207,7 @@ class AuthController extends Controller
                 'slug' => $workspace->slug,
                 'role' => $workspace->getUserRole($user),
                 'plan_name' => $workspace->activeSubscription()?->plan?->name ?? 'Free',
+                'monthly_scan_allowance' => (int) ($workspace->activeSubscription()?->plan?->monthly_scan_allowance ?? 5),
             ],
         ]);
     }

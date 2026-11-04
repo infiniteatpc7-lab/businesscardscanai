@@ -46,6 +46,15 @@ export default function MobileProfilePage({
 
     const isOwnerOrAdmin = ['owner', 'admin'].includes((workspace?.role || '').toLowerCase());
 
+    const planAllowance = workspace?.monthly_scan_allowance ?? (workspace?.plan_name === 'Free' || !workspace?.plan_name ? 5 : 500);
+    const isUnlimited = planAllowance === -1;
+    const remainingCards = isUnlimited ? null : Math.max(0, planAllowance - cardsCount);
+    const progressPercent = isUnlimited
+        ? 0
+        : planAllowance > 0
+        ? Math.min(100, Math.round((cardsCount / planAllowance) * 100))
+        : 0;
+
     // Get initials for avatar
     const initials = displayName
         .split(' ')
@@ -186,17 +195,26 @@ export default function MobileProfilePage({
                 <div className="space-y-1.5">
                     <div className="flex justify-between text-xs font-bold">
                         <span className="text-zinc-600">Cards in this Workspace</span>
-                        <span className="font-mono text-zinc-950">{cardsCount}</span>
+                        <span className="font-mono text-zinc-950">
+                            {cardsCount}
+                            <span className="text-zinc-400 font-normal"> / {isUnlimited ? '∞' : planAllowance}</span>
+                        </span>
                     </div>
                     <div className="w-full h-2 bg-zinc-100 rounded-full overflow-hidden">
                         <div
-                            className="h-full bg-black rounded-full"
-                            style={{ width: `${Math.min(100, Math.max(5, (cardsCount / 100) * 100))}%` }}
+                            className="h-full bg-black rounded-full transition-all duration-300"
+                            style={{ width: `${cardsCount > 0 ? Math.min(100, Math.max(8, progressPercent)) : 0}%` }}
                         ></div>
                     </div>
                     <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-1">
                         <span>1 Card = 1 Scan Credit</span>
-                        <span className="text-emerald-600 font-semibold">Active Workspace</span>
+                        {isUnlimited ? (
+                            <span className="text-zinc-600 font-semibold">Unlimited Scans</span>
+                        ) : remainingCards > 0 ? (
+                            <span className="text-zinc-600 font-semibold">{remainingCards} cards remaining</span>
+                        ) : (
+                            <span className="text-amber-600 font-bold">Plan limit reached</span>
+                        )}
                     </div>
                 </div>
 
