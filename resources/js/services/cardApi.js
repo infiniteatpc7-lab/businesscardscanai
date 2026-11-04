@@ -49,6 +49,18 @@ export async function authFetch(url, options = {}) {
         window.dispatchEvent(new CustomEvent('auth:unauthorized'));
     }
 
+    if (response.status === 403) {
+        try {
+            response.clone().json().then((data) => {
+                if (data?.error_code === 'FEATURE_NOT_INCLUDED' || data?.error_code === 'QUOTA_EXCEEDED') {
+                    window.dispatchEvent(new CustomEvent('plan:upgrade_required', { detail: data }));
+                }
+            }).catch(() => {});
+        } catch {
+            // Ignore cloning errors on non-json stream
+        }
+    }
+
     return response;
 }
 

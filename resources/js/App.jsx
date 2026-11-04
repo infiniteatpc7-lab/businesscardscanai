@@ -9,6 +9,8 @@ import MobileProfilePage from './pages/MobileProfilePage';
 import AuthModal from './components/auth/AuthModal';
 import ExhibitionSelectorModal from './components/exhibition/ExhibitionSelectorModal';
 import ExhibitionManageModal from './components/exhibition/ExhibitionManageModal';
+import PlanUpgradeModal from './components/subscription/PlanUpgradeModal';
+import CustomerSubscriptionDashboard from './components/subscription/CustomerSubscriptionDashboard';
 import { ToastProvider, useToast } from './context/ToastContext';
 import {
     fetchCards,
@@ -39,6 +41,16 @@ function MobileAppContent() {
     const [exhibitionsList, setExhibitionsList] = useState([]);
     const [isExhibitionSelectorOpen, setIsExhibitionSelectorOpen] = useState(false);
     const [isExhibitionManageOpen, setIsExhibitionManageOpen] = useState(false);
+
+    // Plan Upgrade & Feature Gate Modal state
+    const [upgradeModal, setUpgradeModal] = useState({
+        isOpen: false,
+        reason: 'on_load', // 'on_load' | 'feature_locked' | 'quota_exceeded'
+        featureKey: null,
+        featureName: null,
+        message: null,
+    });
+    const [isSubscriptionDashboardOpen, setIsSubscriptionDashboardOpen] = useState(false);
 
     // Fetch cards from backend API
     const loadCards = async () => {
@@ -149,9 +161,45 @@ function MobileAppContent() {
             setIsAuthModalOpen(true);
         };
 
+        // Global listener for 403 feature gate & quota limits
+        const handleUpgradeRequired = (e) => {
+            const detail = e.detail || {};
+            setUpgradeModal({
+                isOpen: true,
+                reason: detail.error_code === 'QUOTA_EXCEEDED' ? 'quota_exceeded' : 'feature_locked',
+                featureKey: detail.feature || null,
+                featureName: null,
+                message: detail.message || null,
+            });
+        };
+
         window.addEventListener('auth:unauthorized', handleUnauthorized);
-        return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
+        window.addEventListener('plan:upgrade_required', handleUpgradeRequired);
+        return () => {
+            window.removeEventListener('auth:unauthorized', handleUnauthorized);
+            window.removeEventListener('plan:upgrade_required', handleUpgradeRequired);
+        };
     }, []);
+
+    // Website load popup: Trigger Plan Promotion for Free Plan users
+    useEffect(() => {
+        if (authWorkspace && (authWorkspace.plan_name === 'Free' || !authWorkspace.plan_name)) {
+            const hasSeen = sessionStorage.getItem('seen_upgrade_modal_on_load');
+            if (!hasSeen) {
+                sessionStorage.setItem('seen_upgrade_modal_on_load', '1');
+                const timer = setTimeout(() => {
+                    setUpgradeModal({
+                        isOpen: true,
+                        reason: 'on_load',
+                        featureKey: null,
+                        featureName: null,
+                        message: null,
+                    });
+                }, 800);
+                return () => clearTimeout(timer);
+            }
+        }
+    }, [authWorkspace?.id]);
 
     const handleAuthSuccess = (data) => {
         setAuthUser(data.user);
@@ -191,6 +239,19 @@ function MobileAppContent() {
 
     // Export CSV Helper with backend plan entitlement check
     const handleExportCSV = async () => {
+        // Pre-emptive check: If workspace plan does not include export_csv, open upgrade modal
+        const features = authWorkspace?.features || [];
+        if (features.length > 0 && !features.includes('export_csv')) {
+            setUpgradeModal({
+                isOpen: true,
+                reason: 'feature_locked',
+                featureKey: 'export_csv',
+                featureName: 'CSV & Excel Export',
+                message: 'Exporting contacts to CSV or Excel is included in Pro & Business plans.',
+            });
+            return;
+        }
+
         if (cards.length === 0) {
             showToast('No cards to export', 'info');
             return;
@@ -199,7 +260,13 @@ function MobileAppContent() {
         try {
             const res = await exportCards('csv');
             if (res.forbidden) {
-                showToast(res.message, 'error');
+                setUpgradeModal({
+                    isOpen: true,
+                    reason: 'feature_locked',
+                    featureKey: res.feature || 'export_csv',
+                    featureName: 'CSV & Excel Export',
+                    message: res.message || 'Exporting contacts is not included in your current plan.',
+                });
             } else if (res.success) {
                 showToast('CSV Exported successfully!');
             } else {
@@ -300,6 +367,7 @@ function MobileAppContent() {
                                 }}
                                 currentExhibition={currentExhibition}
                                 onOpenExhibitionSelector={() => setIsExhibitionSelectorOpen(true)}
+                                workspace={authWorkspace}
                             />
                         )}
 
@@ -345,6 +413,28 @@ function MobileAppContent() {
                     currentWorkspace={authWorkspace}
                     userRole={authWorkspace?.role || 'owner'}
                     onExhibitionUpdated={loadExhibitionState}
+                />
+
+                {/* Plan Upgrade & Feature Gate Paywall Modal */}
+                <PlanUpgradeModal
+                    isOpen={upgradeModal.isOpen}
+                    onClose={() => setUpgradeModal((prev) => ({ ...prev, isOpen: false }))}
+                    reason={upgradeModal.reason}
+                    featureKey={upgradeModal.featureKey}
+                    featureName={upgradeModal.featureName}
+                    message={upgradeModal.message}
+                    workspace={authWorkspace}
+                    onOpenFullDashboard={() => setIsSubscriptionDashboardOpen(true)}
+                />
+
+                {/* Full Customer Subscription & Usage Dashboard Sheet */}
+                <CustomerSubscriptionDashboard
+                    isOpen={isSubscriptionDashboardOpen}
+                    onClose={() => setIsSubscriptionDashboardOpen(false)}
+                    currentWorkspace={authWorkspace}
+                    userRole={authWorkspace?.role || 'owner'}
+                    onSwitchWorkspace={handleWorkspaceChanged}
+                    workspaces={workspacesList}
                 />
             </div>
         </div>

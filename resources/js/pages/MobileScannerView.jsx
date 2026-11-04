@@ -31,7 +31,8 @@ export default function MobileScannerView({
     onCardSaved,
     onNavigateToCards,
     currentExhibition,
-    onOpenExhibitionSelector
+    onOpenExhibitionSelector,
+    workspace = null
 }) {
     const { showToast } = useToast();
     const { compressImage } = useImageProcessor();
@@ -266,7 +267,20 @@ export default function MobileScannerView({
                 </button>
                 <button
                     type="button"
-                    onClick={() => setScanMode('bulk')}
+                    onClick={() => {
+                        const features = workspace?.features || [];
+                        if (features.length > 0 && !features.includes('bulk_import')) {
+                            window.dispatchEvent(new CustomEvent('plan:upgrade_required', {
+                                detail: {
+                                    error_code: 'FEATURE_NOT_INCLUDED',
+                                    feature: 'bulk_import',
+                                    message: 'Bulk multiple card batch import is included in the Pro and Business plans.'
+                                }
+                            }));
+                            return;
+                        }
+                        setScanMode('bulk');
+                    }}
                     className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all ${
                         scanMode === 'bulk' ? 'bg-white text-zinc-950 shadow-xs' : 'text-zinc-500 hover:text-zinc-900'
                     }`}
