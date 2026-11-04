@@ -389,10 +389,11 @@ export default function MobileCardsPage({
 
                     <button
                         onClick={onExportCSV}
-                        className="p-1.5 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 active:scale-95"
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[11px] font-semibold transition-all active:scale-95 shrink-0"
                         title="Export CSV"
                     >
-                        <FileSpreadsheet className="w-4 h-4" />
+                        <span>Export CSV</span>
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
                     </button>
                 </div>
 
