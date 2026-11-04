@@ -13,8 +13,10 @@ export default function AdminHeader({
 }) {
     const titles = {
         dashboard: { section: 'Dashboards', label: 'Overview', subtitle: 'Platform telemetry and analytics' },
+        'ai-costs': { section: 'Dashboards', label: 'AI Usage & Costs', subtitle: 'Gemini API requests and cost tracking' },
         customers: { section: 'Management', label: 'Customers', subtitle: 'Customer accounts and workspace tenants' },
         workspaces: { section: 'Management', label: 'Workspaces', subtitle: 'Multi-tenant organizations and card stores' },
+        plans: { section: 'Management', label: 'Plans & Pricing', subtitle: 'SaaS subscription plans and tier limits' },
         audit: { section: 'Security', label: 'Audit Trail', subtitle: 'Cryptographic system audit logs' },
     };
 

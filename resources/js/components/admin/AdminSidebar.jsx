@@ -8,7 +8,8 @@ import {
     LogOut,
     ExternalLink,
     X,
-    Shield
+    Shield,
+    Cpu
 } from 'lucide-react';
 import AdminCnLogo from './AdminCnLogo';
 
@@ -26,6 +27,7 @@ export default function AdminSidebar({
             groupLabel: 'Dashboards',
             items: [
                 { id: 'dashboard', label: 'Overview', icon: LayoutDashboard, badge: null },
+                { id: 'ai-costs', label: 'AI Usage & Costs', icon: Cpu, badge: 'Gemini', badgeClass: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' },
             ],
         },
         {

@@ -151,6 +151,34 @@ class AiApiRequest extends Model
     }
 
     /**
+     * Estimated cost allocated per image for this request in USD (as precise decimal string).
+     */
+    public function estimatedCostPerImageUsd(): ?string
+    {
+        if ($this->cost_usd === null) {
+            return null;
+        }
+
+        $count = (string) max(1, $this->image_count);
+
+        return bcdiv((string) $this->cost_usd, $count, 6);
+    }
+
+    /**
+     * Estimated cost allocated per image for this request in INR (as precise decimal string).
+     */
+    public function estimatedCostPerImageInr(): ?string
+    {
+        if ($this->cost_inr === null) {
+            return null;
+        }
+
+        $count = (string) max(1, $this->image_count);
+
+        return bcdiv((string) $this->cost_inr, $count, 6);
+    }
+
+    /**
      * Estimated cost allocated per image for this request in USD.
      */
     public function costPerImageUsd(): ?float

@@ -5,6 +5,7 @@ use App\Http\Controllers\BulkImportController;
 use App\Http\Controllers\CardController;
 use App\Http\Controllers\CustomerSubscriptionController;
 use App\Http\Controllers\ExhibitionController;
+use App\Http\Controllers\PlatformAdmin\AdminAiCostController;
 use App\Http\Controllers\PlatformAdmin\AdminAuditLogController;
 use App\Http\Controllers\PlatformAdmin\AdminAuthController;
 use App\Http\Controllers\PlatformAdmin\AdminCustomerController;
@@ -132,6 +133,12 @@ Route::prefix('platform-admin')->group(function () {
 
         // Payment Transactions History
         Route::get('/payment-transactions', [AdminPaymentTransactionController::class, 'index']);
+
+        // AI API Usage & Costs Tracking (Platform Admin Only)
+        Route::get('/ai-costs/requests', [AdminAiCostController::class, 'index']);
+        Route::get('/ai-costs/requests/{id}', [AdminAiCostController::class, 'show']);
+        Route::get('/ai-costs/filter-options', [AdminAiCostController::class, 'filterOptions']);
+        Route::post('/ai-costs/requests/{id}/recalculate', [AdminAiCostController::class, 'recalculate']);
 
         // Audit Logs
         Route::get('/audit-logs', [AdminAuditLogController::class, 'index']);

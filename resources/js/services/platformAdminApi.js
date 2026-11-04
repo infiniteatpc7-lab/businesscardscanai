@@ -219,5 +219,54 @@ export async function fetchPaymentTransactions({
     return adminFetch(`/api/platform-admin/payment-transactions?${params.toString()}`);
 }
 
+/**
+ * AI API Usage & Costs Tracking
+ */
+export async function fetchAiCostRequests({
+    page = 1,
+    perPage = 25,
+    datePreset = 'all',
+    startDate = null,
+    endDate = null,
+    workspaceId = null,
+    userId = null,
+    model = null,
+    status = 'all',
+    scanType = 'all',
+    costStatus = 'all',
+    search = ''
+} = {}) {
+    const params = new URLSearchParams();
+    if (page) params.append('page', page);
+    if (perPage) params.append('per_page', perPage);
+    if (datePreset && datePreset !== 'all') params.append('date_preset', datePreset);
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    if (workspaceId) params.append('workspace_id', workspaceId);
+    if (userId) params.append('user_id', userId);
+    if (model && model !== 'all') params.append('model', model);
+    if (status && status !== 'all') params.append('status', status);
+    if (scanType && scanType !== 'all') params.append('scan_type', scanType);
+    if (costStatus && costStatus !== 'all') params.append('cost_status', costStatus);
+    if (search) params.append('search', search);
+
+    return adminFetch(`/api/platform-admin/ai-costs/requests?${params.toString()}`);
+}
+
+export async function fetchAiCostDetails(id) {
+    return adminFetch(`/api/platform-admin/ai-costs/requests/${id}`);
+}
+
+export async function fetchAiCostFilterOptions() {
+    return adminFetch('/api/platform-admin/ai-costs/filter-options');
+}
+
+export async function recalculateAiCostRequest(id) {
+    return adminFetch(`/api/platform-admin/ai-costs/requests/${id}/recalculate`, {
+        method: 'POST',
+    });
+}
+
+
 
 

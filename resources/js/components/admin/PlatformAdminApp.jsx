@@ -15,6 +15,7 @@ import AdminCustomersView from './AdminCustomersView';
 import AdminWorkspacesView from './AdminWorkspacesView';
 import AdminPlansView from './AdminPlansView';
 import AdminAuditLogsView from './AdminAuditLogsView';
+import AdminAiCostsView from './AdminAiCostsView';
 
 export default function PlatformAdminApp() {
     const [adminProfile, setAdminProfile] = useState(() => getAdminProfile());
@@ -193,6 +194,8 @@ export default function PlatformAdminApp() {
                     {currentTab === 'workspaces' && <AdminWorkspacesView />}
 
                     {currentTab === 'plans' && <AdminPlansView />}
+
+                    {currentTab === 'ai-costs' && <AdminAiCostsView />}
 
                     {currentTab === 'audit' && <AdminAuditLogsView />}
                 </main>
