@@ -5,6 +5,9 @@ import {
     Calendar,
     ChevronLeft,
     ChevronRight,
+    ChevronDown,
+    SlidersHorizontal,
+    RotateCcw,
     Loader2,
     Eye,
     X,
@@ -78,6 +81,22 @@ export default function AdminAiCostsView() {
     const [isLoadingDetail, setIsLoadingDetail] = useState(false);
     const [isRecalculating, setIsRecalculating] = useState(false);
     const [actionMessage, setActionMessage] = useState(null);
+    const [isFilterExpanded, setIsFilterExpanded] = useState(true);
+
+    // Active filters counting
+    const activeFiltersCount = [
+        datePreset !== 'all',
+        Boolean(startDate || endDate),
+        Boolean(selectedWorkspace),
+        Boolean(selectedUser),
+        Boolean(selectedModel),
+        selectedStatus !== 'all',
+        selectedScanType !== 'all',
+        selectedCostStatus !== 'all',
+        Boolean(searchQuery.trim()),
+    ].filter(Boolean).length;
+
+    const hasAnyFilter = activeFiltersCount > 0;
 
     // Load Filter Options Once
     useEffect(() => {
@@ -447,144 +466,345 @@ export default function AdminAiCostsView() {
             )}
 
             {/* Filter Bar */}
-            <div className="p-4 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 shadow-xs space-y-3">
-                <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-300 flex items-center gap-1.5">
-                        <Filter className="w-3.5 h-3.5 text-orange-500" />
-                        Filters & Search
-                    </span>
-                    <button
-                        type="button"
-                        onClick={handleResetFilters}
-                        className="text-xs text-orange-600 dark:text-orange-400 hover:underline font-medium cursor-pointer"
-                    >
-                        Reset All Filters
-                    </button>
-                </div>
-
-                {/* Primary Row: Search and Date Presets */}
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
-                    {/* Search */}
-                    <div className="md:col-span-5 relative">
-                        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-zinc-500" />
+            <div className="p-4 sm:p-5 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800 shadow-xs space-y-4">
+                {/* Top Control Bar: Search Input, Quick Date Range, Filters Toggle, Reset */}
+                <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+                    {/* Search Input */}
+                    <div className="relative flex-1 min-w-0">
+                        <Search className="w-4 h-4 text-slate-400 dark:text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                         <input
                             type="text"
-                            placeholder="Search by UUID, error message, workspace, user..."
+                            placeholder="Search by UUID, workspace, user name or email, model..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full pl-9 pr-3 py-1.5 rounded-lg text-xs bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                            className="w-full pl-9 pr-8 py-2 text-xs bg-slate-50/70 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-orange-500 transition-colors"
                         />
-                    </div>
-
-                    {/* Date Presets */}
-                    <div className="md:col-span-4 flex items-center gap-1 overflow-x-auto pb-1 md:pb-0">
-                        {filterOptions.date_presets.map((preset) => (
+                        {searchQuery && (
                             <button
-                                key={preset.id}
                                 type="button"
-                                onClick={() => {
-                                    setDatePreset(preset.id);
-                                }}
-                                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
-                                    datePreset === preset.id
-                                        ? 'bg-orange-500 text-white shadow-xs font-semibold'
-                                        : 'bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800'
-                                }`}
+                                onClick={() => setSearchQuery('')}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 cursor-pointer"
                             >
-                                {preset.label}
+                                <X className="w-3.5 h-3.5" />
                             </button>
-                        ))}
+                        )}
                     </div>
 
-                    {/* Scan Type Filter */}
-                    <div className="md:col-span-3">
-                        <select
-                            value={selectedScanType}
-                            onChange={(e) => setSelectedScanType(e.target.value)}
-                            className="w-full px-2.5 py-1.5 rounded-lg text-xs bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                    {/* Right Action Tools: Date Range Dropdown, Filter Toggle, Reset */}
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap">
+                        {/* Time Period Selector Dropdown (Clean, zero horizontal scrollbar) */}
+                        <div className="relative min-w-[145px]">
+                            <Calendar className="w-3.5 h-3.5 text-orange-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                            <select
+                                value={datePreset}
+                                onChange={(e) => {
+                                    setDatePreset(e.target.value);
+                                    if (e.target.value !== 'custom') {
+                                        setStartDate('');
+                                        setEndDate('');
+                                    }
+                                }}
+                                className="w-full appearance-none pl-8 pr-7 py-2 text-xs bg-slate-50/70 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-orange-500 transition-colors cursor-pointer"
+                            >
+                                <option value="all">Period: All Time</option>
+                                <option value="today">Period: Today</option>
+                                <option value="yesterday">Period: Yesterday</option>
+                                <option value="7d">Period: Last 7 Days</option>
+                                <option value="30d">Period: Last 30 Days</option>
+                                <option value="this_month">Period: This Month</option>
+                                <option value="custom">Period: Custom Range...</option>
+                            </select>
+                            <ChevronDown className="w-3.5 h-3.5 text-slate-400 dark:text-zinc-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        </div>
+
+                        {/* Toggle Advanced Filters Button */}
+                        <button
+                            type="button"
+                            onClick={() => setIsFilterExpanded(!isFilterExpanded)}
+                            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                                isFilterExpanded
+                                    ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/30'
+                                    : 'bg-slate-50/70 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800'
+                            }`}
                         >
-                            <option value="all">All Scan Types</option>
-                            <option value="single_scan">Single Card Scan</option>
-                            <option value="bulk_scan">Bulk Batch Scan</option>
-                        </select>
+                            <SlidersHorizontal className="w-3.5 h-3.5" />
+                            <span>Filters</span>
+                            {activeFiltersCount > 0 && (
+                                <span className="size-4 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center">
+                                    {activeFiltersCount}
+                                </span>
+                            )}
+                            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isFilterExpanded ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        {/* Reset All Filters Button */}
+                        {hasAnyFilter && (
+                            <button
+                                type="button"
+                                onClick={handleResetFilters}
+                                title="Reset all filters"
+                                className="inline-flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200/60 dark:border-rose-900/40 transition-colors cursor-pointer"
+                            >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Reset</span>
+                            </button>
+                        )}
                     </div>
                 </div>
 
-                {/* Secondary Row: Workspace, User, Model, Status, Cost Status */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 pt-1">
-                    {/* Model */}
-                    <div>
-                        <select
-                            value={selectedModel}
-                            onChange={(e) => setSelectedModel(e.target.value)}
-                            className="w-full px-2.5 py-1.5 rounded-lg text-xs bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 focus:outline-none focus:ring-1 focus:ring-orange-500"
-                        >
-                            <option value="">All Gemini Models</option>
-                            {filterOptions.models.map((m) => (
-                                <option key={m} value={m}>{m}</option>
-                            ))}
-                        </select>
+                {/* Custom Date Pickers (Shown when Custom Range is selected) */}
+                {datePreset === 'custom' && (
+                    <div className="pt-3 border-t border-slate-100 dark:border-zinc-800/80 flex flex-wrap items-center gap-3 text-xs bg-slate-50/50 dark:bg-zinc-950/40 p-3 rounded-lg">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                            Custom Date Range:
+                        </span>
+                        <div className="flex items-center gap-2">
+                            <span className="text-[11px] text-slate-400">From</span>
+                            <input
+                                type="date"
+                                value={startDate}
+                                onChange={(e) => setStartDate(e.target.value)}
+                                className="px-2.5 py-1.5 text-xs bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-orange-500"
+                            />
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span className="text-[11px] text-slate-400">To</span>
+                            <input
+                                type="date"
+                                value={endDate}
+                                onChange={(e) => setEndDate(e.target.value)}
+                                className="px-2.5 py-1.5 text-xs bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-orange-500"
+                            />
+                        </div>
+                        {(startDate || endDate) && (
+                            <button
+                                type="button"
+                                onClick={() => { setStartDate(''); setEndDate(''); }}
+                                className="text-[11px] font-medium text-orange-600 dark:text-orange-400 hover:underline cursor-pointer"
+                            >
+                                Clear Date Pickers
+                            </button>
+                        )}
                     </div>
+                )}
 
-                    {/* Workspace */}
-                    <div>
-                        <select
-                            value={selectedWorkspace}
-                            onChange={(e) => setSelectedWorkspace(e.target.value)}
-                            className="w-full px-2.5 py-1.5 rounded-lg text-xs bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 focus:outline-none focus:ring-1 focus:ring-orange-500"
-                        >
-                            <option value="">All Workspaces</option>
-                            {filterOptions.workspaces.map((w) => (
-                                <option key={w.id} value={w.id}>{w.name}</option>
-                            ))}
-                        </select>
-                    </div>
+                {/* Expanded Multi-Filter Controls Grid */}
+                {isFilterExpanded && (
+                    <div className="pt-3 border-t border-slate-100 dark:border-zinc-800/80">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+                            {/* Gemini Model */}
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                                    Gemini Model
+                                </label>
+                                <div className="relative">
+                                    <select
+                                        value={selectedModel}
+                                        onChange={(e) => setSelectedModel(e.target.value)}
+                                        className="w-full appearance-none pl-3 pr-8 py-2 text-xs bg-slate-50/70 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                                    >
+                                        <option value="">All Gemini Models</option>
+                                        {filterOptions.models.map((m) => (
+                                            <option key={m} value={m}>{m}</option>
+                                        ))}
+                                    </select>
+                                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 dark:text-zinc-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                </div>
+                            </div>
 
-                    {/* User */}
-                    <div>
-                        <select
-                            value={selectedUser}
-                            onChange={(e) => setSelectedUser(e.target.value)}
-                            className="w-full px-2.5 py-1.5 rounded-lg text-xs bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 focus:outline-none focus:ring-1 focus:ring-orange-500"
-                        >
-                            <option value="">All Users</option>
-                            {filterOptions.users.map((u) => (
-                                <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
-                            ))}
-                        </select>
-                    </div>
+                            {/* Scan Type */}
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                                    Scan Type
+                                </label>
+                                <div className="relative">
+                                    <select
+                                        value={selectedScanType}
+                                        onChange={(e) => setSelectedScanType(e.target.value)}
+                                        className="w-full appearance-none pl-3 pr-8 py-2 text-xs bg-slate-50/70 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                                    >
+                                        <option value="all">All Scan Types</option>
+                                        <option value="single_scan">Single Card Scan</option>
+                                        <option value="bulk_scan">Bulk Batch Scan</option>
+                                    </select>
+                                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 dark:text-zinc-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                </div>
+                            </div>
 
-                    {/* Request Status */}
-                    <div>
-                        <select
-                            value={selectedStatus}
-                            onChange={(e) => setSelectedStatus(e.target.value)}
-                            className="w-full px-2.5 py-1.5 rounded-lg text-xs bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 focus:outline-none focus:ring-1 focus:ring-orange-500"
-                        >
-                            <option value="all">All Request Statuses</option>
-                            <option value="success">Success</option>
-                            <option value="failed">Failed</option>
-                            <option value="pending">Pending</option>
-                        </select>
-                    </div>
+                            {/* API Request Status */}
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                                    API Status
+                                </label>
+                                <div className="relative">
+                                    <select
+                                        value={selectedStatus}
+                                        onChange={(e) => setSelectedStatus(e.target.value)}
+                                        className="w-full appearance-none pl-3 pr-8 py-2 text-xs bg-slate-50/70 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                                    >
+                                        <option value="all">All Request Statuses</option>
+                                        <option value="success">Success Only</option>
+                                        <option value="failed">Failed Only</option>
+                                        <option value="pending">Pending Only</option>
+                                    </select>
+                                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 dark:text-zinc-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                </div>
+                            </div>
 
-                    {/* Cost Status */}
-                    <div>
-                        <select
-                            value={selectedCostStatus}
-                            onChange={(e) => setSelectedCostStatus(e.target.value)}
-                            className="w-full px-2.5 py-1.5 rounded-lg text-xs bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 focus:outline-none focus:ring-1 focus:ring-orange-500"
-                        >
-                            <option value="all">All Cost Statuses</option>
-                            <option value="calculated">Calculated</option>
-                            <option value="no_usage">0 Tokens (No Usage)</option>
-                            <option value="usage_metadata_missing">Missing Usage</option>
-                            <option value="pricing_missing">Missing Pricing</option>
-                            <option value="exchange_rate_missing">Missing FX Rate</option>
-                            <option value="pending">Pending Cost</option>
-                        </select>
+                            {/* Cost Status */}
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                                    Cost Status
+                                </label>
+                                <div className="relative">
+                                    <select
+                                        value={selectedCostStatus}
+                                        onChange={(e) => setSelectedCostStatus(e.target.value)}
+                                        className="w-full appearance-none pl-3 pr-8 py-2 text-xs bg-slate-50/70 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                                    >
+                                        <option value="all">All Cost Statuses</option>
+                                        <option value="calculated">Calculated</option>
+                                        <option value="no_usage">0 Tokens (No Usage)</option>
+                                        <option value="usage_metadata_missing">Usage Missing</option>
+                                        <option value="pricing_missing">Pricing Missing</option>
+                                        <option value="exchange_rate_missing">FX Missing</option>
+                                        <option value="pending">Pending Cost</option>
+                                    </select>
+                                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 dark:text-zinc-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                </div>
+                            </div>
+
+                            {/* Workspace */}
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                                    Workspace Tenant
+                                </label>
+                                <div className="relative">
+                                    <select
+                                        value={selectedWorkspace}
+                                        onChange={(e) => setSelectedWorkspace(e.target.value)}
+                                        className="w-full appearance-none pl-3 pr-8 py-2 text-xs bg-slate-50/70 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer truncate"
+                                    >
+                                        <option value="">All Workspaces</option>
+                                        {filterOptions.workspaces.map((w) => (
+                                            <option key={w.id} value={w.id}>{w.name}</option>
+                                        ))}
+                                    </select>
+                                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 dark:text-zinc-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                </div>
+                            </div>
+
+                            {/* Customer User */}
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                                    Customer User
+                                </label>
+                                <div className="relative">
+                                    <select
+                                        value={selectedUser}
+                                        onChange={(e) => setSelectedUser(e.target.value)}
+                                        className="w-full appearance-none pl-3 pr-8 py-2 text-xs bg-slate-50/70 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer truncate"
+                                    >
+                                        <option value="">All Users</option>
+                                        {filterOptions.users.map((u) => (
+                                            <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+                                        ))}
+                                    </select>
+                                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 dark:text-zinc-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                </div>
+                )}
+
+                {/* Active Filter Chips / Removable Pills */}
+                {hasAnyFilter && (
+                    <div className="pt-2.5 border-t border-slate-100 dark:border-zinc-800/80 flex flex-wrap items-center gap-1.5 text-xs">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 mr-1">
+                            Active Filters:
+                        </span>
+
+                        {datePreset !== 'all' && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-orange-500/10 text-orange-700 dark:text-orange-400 border border-orange-500/20">
+                                Period: {datePreset === 'custom' ? `${startDate || 'Start'} to ${endDate || 'End'}` : (filterOptions.date_presets.find(p => p.id === datePreset)?.label || datePreset)}
+                                <button type="button" onClick={() => { setDatePreset('all'); setStartDate(''); setEndDate(''); }} className="hover:text-orange-900 dark:hover:text-white cursor-pointer ml-0.5">
+                                    <X className="w-3 h-3" />
+                                </button>
+                            </span>
+                        )}
+
+                        {selectedModel && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-orange-500/10 text-orange-700 dark:text-orange-400 border border-orange-500/20">
+                                Model: {selectedModel}
+                                <button type="button" onClick={() => setSelectedModel('')} className="hover:text-orange-900 dark:hover:text-white cursor-pointer ml-0.5">
+                                    <X className="w-3 h-3" />
+                                </button>
+                            </span>
+                        )}
+
+                        {selectedScanType !== 'all' && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-orange-500/10 text-orange-700 dark:text-orange-400 border border-orange-500/20">
+                                Type: {selectedScanType === 'single_scan' ? 'Single Scan' : 'Bulk Batch'}
+                                <button type="button" onClick={() => setSelectedScanType('all')} className="hover:text-orange-900 dark:hover:text-white cursor-pointer ml-0.5">
+                                    <X className="w-3 h-3" />
+                                </button>
+                            </span>
+                        )}
+
+                        {selectedStatus !== 'all' && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-orange-500/10 text-orange-700 dark:text-orange-400 border border-orange-500/20">
+                                Status: {selectedStatus}
+                                <button type="button" onClick={() => setSelectedStatus('all')} className="hover:text-orange-900 dark:hover:text-white cursor-pointer ml-0.5">
+                                    <X className="w-3 h-3" />
+                                </button>
+                            </span>
+                        )}
+
+                        {selectedCostStatus !== 'all' && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-orange-500/10 text-orange-700 dark:text-orange-400 border border-orange-500/20">
+                                Cost: {selectedCostStatus}
+                                <button type="button" onClick={() => setSelectedCostStatus('all')} className="hover:text-orange-900 dark:hover:text-white cursor-pointer ml-0.5">
+                                    <X className="w-3 h-3" />
+                                </button>
+                            </span>
+                        )}
+
+                        {selectedWorkspace && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-orange-500/10 text-orange-700 dark:text-orange-400 border border-orange-500/20">
+                                Workspace: {filterOptions.workspaces.find(w => String(w.id) === String(selectedWorkspace))?.name || selectedWorkspace}
+                                <button type="button" onClick={() => setSelectedWorkspace('')} className="hover:text-orange-900 dark:hover:text-white cursor-pointer ml-0.5">
+                                    <X className="w-3 h-3" />
+                                </button>
+                            </span>
+                        )}
+
+                        {selectedUser && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-orange-500/10 text-orange-700 dark:text-orange-400 border border-orange-500/20">
+                                User: {filterOptions.users.find(u => String(u.id) === String(selectedUser))?.name || selectedUser}
+                                <button type="button" onClick={() => setSelectedUser('')} className="hover:text-orange-900 dark:hover:text-white cursor-pointer ml-0.5">
+                                    <X className="w-3 h-3" />
+                                </button>
+                            </span>
+                        )}
+
+                        {searchQuery && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-orange-500/10 text-orange-700 dark:text-orange-400 border border-orange-500/20">
+                                Query: "{searchQuery}"
+                                <button type="button" onClick={() => setSearchQuery('')} className="hover:text-orange-900 dark:hover:text-white cursor-pointer ml-0.5">
+                                    <X className="w-3 h-3" />
+                                </button>
+                            </span>
+                        )}
+
+                        <button
+                            type="button"
+                            onClick={handleResetFilters}
+                            className="text-[11px] font-semibold text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 ml-1 underline cursor-pointer"
+                        >
+                            Clear all
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* Requests Table */}
@@ -1135,3 +1355,4 @@ export default function AdminAiCostsView() {
         </div>
     );
 }
+
