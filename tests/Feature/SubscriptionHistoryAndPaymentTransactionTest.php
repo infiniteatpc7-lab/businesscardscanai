@@ -436,4 +436,185 @@ class SubscriptionHistoryAndPaymentTransactionTest extends TestCase
 
         $response->assertStatus(401);
     }
+
+    public function test_workspace_deletion_cannot_erase_financial_history(): void
+    {
+        $customerData = $this->createCustomerWithWorkspace();
+        $workspace = $customerData['workspace'];
+        $user = $customerData['user'];
+        $subscription = $workspace->activeSubscription();
+        $proPlan = Plan::where('slug', 'pro')->firstOrFail();
+
+        // 1. History exists
+        $this->assertEquals(1, WorkspaceSubscriptionHistory::where('workspace_id', $workspace->id)->count());
+
+        // 2. Create a payment transaction for this workspace
+        PaymentTransaction::create([
+            'workspace_id' => $workspace->id,
+            'subscription_id' => $subscription->id,
+            'plan_id' => $proPlan->id,
+            'user_id' => $user->id,
+            'amount' => 999.00,
+            'currency' => 'INR',
+            'gateway' => 'razorpay',
+            'gateway_payment_id' => 'pay_protect_del_1',
+            'status' => 'successful',
+        ]);
+
+        // Attempting to delete workspace must throw QueryException due to restrictive foreign key
+        try {
+            $workspace->delete();
+            $this->fail('Expected workspace deletion to fail due to restrictive foreign key on financial records.');
+        } catch (QueryException $e) {
+            $this->assertTrue(true, 'Deletion was blocked as expected.');
+        }
+
+        // Verify financial history and payment transactions were preserved
+        $this->assertEquals(1, WorkspaceSubscriptionHistory::where('workspace_id', $workspace->id)->count());
+        $this->assertEquals(1, PaymentTransaction::where('workspace_id', $workspace->id)->count());
+    }
+
+    public function test_subscription_deletion_preserves_readable_history_with_snapshots(): void
+    {
+        $customerData = $this->createCustomerWithWorkspace();
+        $workspace = $customerData['workspace'];
+        $subscription = $workspace->activeSubscription();
+
+        $history = WorkspaceSubscriptionHistory::where('workspace_id', $workspace->id)->firstOrFail();
+        $this->assertEquals($workspace->name, $history->workspace_name);
+        $this->assertEquals('Free', $history->plan_name);
+        $this->assertEquals('0.00', $history->plan_price);
+
+        // Delete the subscription record
+        $subscription->delete();
+
+        // History entry still exists
+        $this->assertEquals(1, WorkspaceSubscriptionHistory::where('workspace_id', $workspace->id)->count());
+
+        $freshHistory = $history->fresh();
+        $this->assertNull($freshHistory->subscription_id);
+        $this->assertEquals($workspace->id, $freshHistory->workspace_id);
+        $this->assertEquals($workspace->name, $freshHistory->workspace_name);
+        $this->assertEquals('Free', $freshHistory->plan_name);
+        $this->assertEquals('0.00', $freshHistory->plan_price);
+        $this->assertNotNull($freshHistory->period_starts_at);
+    }
+
+    public function test_cross_workspace_idempotency_key_collision_is_rejected(): void
+    {
+        $adminData = $this->createPlatformAdmin();
+        $wsA = $this->createCustomerWithWorkspace()['workspace'];
+        $wsB = $this->createCustomerWithWorkspace()['workspace'];
+        $proPlan = Plan::where('slug', 'pro')->firstOrFail();
+
+        // 1. Workspace A uses idempotency key
+        $resA = $this->withHeader('Authorization', "Bearer {$adminData['token']}")
+            ->withHeader('X-Idempotency-Key', 'unique_shared_key_123')
+            ->postJson("/api/platform-admin/workspaces/{$wsA->id}/change-plan", [
+                'plan_id' => $proPlan->id,
+                'reason' => 'Ws A Upgrade',
+            ]);
+        $resA->assertOk();
+
+        // 2. Workspace B tries to reuse the exact same idempotency key
+        $resB = $this->withHeader('Authorization', "Bearer {$adminData['token']}")
+            ->withHeader('X-Idempotency-Key', 'unique_shared_key_123')
+            ->postJson("/api/platform-admin/workspaces/{$wsB->id}/change-plan", [
+                'plan_id' => $proPlan->id,
+                'reason' => 'Ws B Upgrade Collision',
+            ]);
+
+        $resB->assertStatus(409)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('error_code', 'IDEMPOTENCY_CONFLICT');
+    }
+
+    public function test_same_workspace_conflicting_operation_idempotency_is_rejected(): void
+    {
+        $adminData = $this->createPlatformAdmin();
+        $ws = $this->createCustomerWithWorkspace()['workspace'];
+        $proPlan = Plan::where('slug', 'pro')->firstOrFail();
+        $bizPlan = Plan::where('slug', 'business')->firstOrFail();
+
+        // 1. Workspace changes to Pro with key
+        $res1 = $this->withHeader('Authorization', "Bearer {$adminData['token']}")
+            ->withHeader('X-Idempotency-Key', 'conflict_key_456')
+            ->postJson("/api/platform-admin/workspaces/{$ws->id}/change-plan", [
+                'plan_id' => $proPlan->id,
+                'reason' => 'Change to Pro',
+            ]);
+        $res1->assertOk();
+
+        // 2. Same workspace reuses key for different plan (Business)
+        $res2 = $this->withHeader('Authorization', "Bearer {$adminData['token']}")
+            ->withHeader('X-Idempotency-Key', 'conflict_key_456')
+            ->postJson("/api/platform-admin/workspaces/{$ws->id}/change-plan", [
+                'plan_id' => $bizPlan->id,
+                'reason' => 'Conflict to Business',
+            ]);
+
+        $res2->assertStatus(409)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('error_code', 'IDEMPOTENCY_CONFLICT');
+    }
+
+    public function test_payment_data_protection_strips_raw_card_numbers_and_secrets(): void
+    {
+        $customerData = $this->createCustomerWithWorkspace();
+        $workspace = $customerData['workspace'];
+        $user = $customerData['user'];
+        $subscription = $workspace->activeSubscription();
+        $proPlan = Plan::where('slug', 'pro')->firstOrFail();
+
+        $tx = PaymentTransaction::create([
+            'workspace_id' => $workspace->id,
+            'subscription_id' => $subscription->id,
+            'plan_id' => $proPlan->id,
+            'user_id' => $user->id,
+            'amount' => 999.00,
+            'currency' => 'INR',
+            'gateway' => 'razorpay',
+            'gateway_order_id' => 'order_secure_123',
+            'gateway_payment_id' => 'pay_secure_123',
+            'gateway_signature' => 'valid_hmac_sha256_hash_digest',
+            'status' => 'successful',
+            'paid_at' => now(),
+            'gateway_response' => [
+                'status' => 'captured',
+                'method' => 'card',
+                'card_last4' => '4242',
+                'card_network' => 'visa',
+                'card_number' => '4111111111114242', // FORBIDDEN!
+                'cvv' => '999',                     // FORBIDDEN!
+                'secret' => 'sk_live_supersecret',    // FORBIDDEN!
+                'token' => 'access_token_forbidden', // FORBIDDEN!
+                'password' => 'supersecretpass',     // FORBIDDEN!
+            ],
+        ]);
+
+        $fresh = $tx->fresh();
+        $response = $fresh->gateway_response;
+
+        // Safe fields preserved
+        $this->assertEquals('captured', $response['status']);
+        $this->assertEquals('card', $response['method']);
+        $this->assertEquals('4242', $response['card_last4']);
+        $this->assertEquals('visa', $response['card_network']);
+
+        // Sensitive fields stripped
+        $this->assertArrayNotHasKey('card_number', $response);
+        $this->assertArrayNotHasKey('cvv', $response);
+        $this->assertArrayNotHasKey('secret', $response);
+        $this->assertArrayNotHasKey('token', $response);
+        $this->assertArrayNotHasKey('password', $response);
+
+        // Verification signature is hidden from serialized array / JSON
+        $array = $fresh->toArray();
+        $this->assertArrayNotHasKey('gateway_signature', $array);
+
+        // Snapshots were populated
+        $this->assertEquals($workspace->name, $fresh->workspace_name);
+        $this->assertEquals($proPlan->name, $fresh->plan_name);
+        $this->assertEquals($user->email, $fresh->user_email);
+    }
 }

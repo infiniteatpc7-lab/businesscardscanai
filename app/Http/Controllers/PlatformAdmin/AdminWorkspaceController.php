@@ -273,13 +273,23 @@ class AdminWorkspaceController extends Controller
 
         $workspace = Workspace::findOrFail($id);
         $newPlan = Plan::findOrFail($validated['plan_id']);
+        $idempotencyKey = $request->header('X-Idempotency-Key') ?? $request->input('idempotency_key');
 
-        $subscription = $subscriptionService->changePlan($workspace, $newPlan, [
-            'source' => 'admin_assigned',
-            'admin' => $admin,
-            'reason' => $validated['reason'] ?? null,
-            'request' => $request,
-        ]);
+        try {
+            $subscription = $subscriptionService->changePlan($workspace, $newPlan, [
+                'source' => 'admin_assigned',
+                'admin' => $admin,
+                'reason' => $validated['reason'] ?? null,
+                'request' => $request,
+                'idempotency_key' => $idempotencyKey,
+            ]);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'IDEMPOTENCY_CONFLICT',
+                'message' => $e->getMessage(),
+            ], 409);
+        }
 
         $quota = $quotaService->getWorkspaceQuota($workspace->fresh());
 

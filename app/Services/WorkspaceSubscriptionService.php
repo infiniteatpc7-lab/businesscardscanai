@@ -45,9 +45,15 @@ class WorkspaceSubscriptionService
             if (! $hasHistory) {
                 WorkspaceSubscriptionHistory::create([
                     'workspace_id' => $workspace->id,
+                    'workspace_name' => $workspace->name,
                     'subscription_id' => $subscription->id,
                     'previous_plan_id' => null,
+                    'previous_plan_name' => null,
                     'plan_id' => $defaultPlan->id,
+                    'plan_name' => $defaultPlan->name,
+                    'plan_slug' => $defaultPlan->slug,
+                    'plan_price' => $defaultPlan->price,
+                    'plan_currency' => $defaultPlan->currency,
                     'previous_status' => null,
                     'status' => 'active',
                     'assignment_source' => 'system_free',
@@ -97,10 +103,22 @@ class WorkspaceSubscriptionService
             $idempotencyKey = $options['idempotency_key'] ?? null;
             $newStatus = $options['new_status'] ?? 'active';
 
-            // 1. Idempotency Key check: if already processed with this key, return current
+            // 1. Idempotency Key check: verify workspace scope and operation consistency
             if ($idempotencyKey) {
                 $existingHistory = WorkspaceSubscriptionHistory::where('idempotency_key', $idempotencyKey)->first();
                 if ($existingHistory) {
+                    // Check workspace ownership to prevent cross-workspace key collisions
+                    if ((int) $existingHistory->workspace_id !== (int) $workspace->id) {
+                        throw new InvalidArgumentException("Idempotency key '{$idempotencyKey}' has already been used by another workspace.");
+                    }
+
+                    // Check conflicting operation
+                    if ((int) $existingHistory->plan_id !== (int) $newPlan->id ||
+                        $existingHistory->status !== $newStatus ||
+                        $existingHistory->assignment_source !== $source) {
+                        throw new InvalidArgumentException("Idempotency key '{$idempotencyKey}' cannot be reused for a different or conflicting plan change operation.");
+                    }
+
                     return $currentSub->fresh(['plan']);
                 }
             }
@@ -128,12 +146,18 @@ class WorkspaceSubscriptionService
                 'assignment_source' => $source,
             ]);
 
-            // Append immutable history
+            // Append immutable history with snapshots
             WorkspaceSubscriptionHistory::create([
                 'workspace_id' => $workspace->id,
+                'workspace_name' => $workspace->name,
                 'subscription_id' => $currentSub->id,
                 'previous_plan_id' => $oldPlanId,
+                'previous_plan_name' => $oldPlanName,
                 'plan_id' => $newPlan->id,
+                'plan_name' => $newPlan->name,
+                'plan_slug' => $newPlan->slug,
+                'plan_price' => $newPlan->price,
+                'plan_currency' => $newPlan->currency,
                 'previous_status' => $oldStatus,
                 'status' => $newStatus,
                 'assignment_source' => $source,

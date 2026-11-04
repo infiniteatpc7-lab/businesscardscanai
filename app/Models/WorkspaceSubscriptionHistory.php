@@ -25,9 +25,15 @@ class WorkspaceSubscriptionHistory extends Model
      */
     protected $fillable = [
         'workspace_id',
+        'workspace_name',
         'subscription_id',
         'previous_plan_id',
+        'previous_plan_name',
         'plan_id',
+        'plan_name',
+        'plan_slug',
+        'plan_price',
+        'plan_currency',
         'previous_status',
         'status',
         'assignment_source',
@@ -48,6 +54,7 @@ class WorkspaceSubscriptionHistory extends Model
     protected function casts(): array
     {
         return [
+            'plan_price' => 'decimal:2',
             'period_starts_at' => 'datetime',
             'period_ends_at' => 'datetime',
             'metadata' => 'array',
@@ -56,7 +63,7 @@ class WorkspaceSubscriptionHistory extends Model
     }
 
     /**
-     * Boot model events for consistency validation.
+     * Boot model events for consistency validation and immutable snapshot preservation.
      */
     protected static function booted(): void
     {
@@ -66,6 +73,29 @@ class WorkspaceSubscriptionHistory extends Model
                 if ($sub && (int) $sub->workspace_id !== (int) $history->workspace_id) {
                     throw new InvalidArgumentException('Subscription does not belong to the specified workspace.');
                 }
+            }
+
+            // Capture workspace name snapshot
+            if (! $history->workspace_name && $history->workspace_id) {
+                $ws = Workspace::find($history->workspace_id);
+                $history->workspace_name = $ws?->name;
+            }
+
+            // Capture new plan snapshots
+            if ($history->plan_id) {
+                $plan = Plan::find($history->plan_id);
+                if ($plan) {
+                    $history->plan_name = $history->plan_name ?? $plan->name;
+                    $history->plan_slug = $history->plan_slug ?? $plan->slug;
+                    $history->plan_price = $history->plan_price ?? $plan->price;
+                    $history->plan_currency = $history->plan_currency ?? $plan->currency;
+                }
+            }
+
+            // Capture previous plan name snapshot
+            if (! $history->previous_plan_name && $history->previous_plan_id) {
+                $prevPlan = Plan::find($history->previous_plan_id);
+                $history->previous_plan_name = $prevPlan?->name;
             }
         });
     }
