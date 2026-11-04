@@ -1,29 +1,26 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
     X,
     CreditCard,
     CheckCircle2,
-    AlertTriangle,
-    Clock,
-    Zap,
-    Shield,
-    Calendar,
-    Receipt,
-    History,
-    Building2,
-    Users,
-    ChevronRight,
-    ArrowRight,
-    Loader2,
     Sparkles,
     Check,
     MessageCircle,
-    Mail,
     PhoneCall,
-    BarChart3,
-    Info,
+    Mail,
+    ArrowRight,
+    Loader2,
+    Calendar,
+    Receipt,
+    History,
+    Shield,
+    Lock,
     ExternalLink,
-    Lock
+    Building2,
+    ChevronRight,
+    Clock,
+    Zap
 } from 'lucide-react';
 import {
     fetchCustomerSubscription,
@@ -42,22 +39,21 @@ export default function CustomerSubscriptionDashboard({
     onSwitchWorkspace,
     workspaces = []
 }) {
-    // Tabs: 'overview' | 'upgrade' | 'ledger' | 'payments'
+    if (!isOpen) return null;
+
+    // Tabs: 'overview' | 'upgrade' | 'history'
     const [activeTab, setActiveTab] = useState('overview');
+    const [historySubTab, setHistorySubTab] = useState('scans'); // 'scans' | 'payments'
     const [isLoading, setIsLoading] = useState(true);
     const [subData, setSubData] = useState(null);
 
-    // Ledger state
+    // Ledger & History state
     const [ledgerItems, setLedgerItems] = useState([]);
     const [isLedgerLoading, setIsLedgerLoading] = useState(false);
-
-    // History state
-    const [historyItems, setHistoryItems] = useState([]);
-    const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+    const [subscriptionHistory, setSubscriptionHistory] = useState([]);
 
     // Payments state
     const [payments, setPayments] = useState([]);
-    const [paymentFilter, setPaymentFilter] = useState('all');
     const [isPaymentsLoading, setIsPaymentsLoading] = useState(false);
 
     // Plans & Upgrade state
@@ -89,6 +85,7 @@ export default function CustomerSubscriptionDashboard({
     useEffect(() => {
         if (isOpen) {
             setActiveTab('overview');
+            setHistorySubTab('scans');
             setUpgradeSuccessMsg(null);
             setSelectedUpgradePlan(null);
             loadSubscriptionData();
@@ -101,12 +98,14 @@ export default function CustomerSubscriptionDashboard({
 
         if (activeTab === 'upgrade' && plans.length === 0) {
             loadPlans();
-        } else if (activeTab === 'ledger' && ledgerItems.length === 0) {
-            loadLedger();
-        } else if (activeTab === 'payments') {
-            loadPayments();
+        } else if (activeTab === 'history') {
+            if (historySubTab === 'scans' && ledgerItems.length === 0) {
+                loadLedger();
+            } else if (historySubTab === 'payments' && payments.length === 0) {
+                loadPayments();
+            }
         }
-    }, [activeTab, isOpen, paymentFilter]);
+    }, [activeTab, historySubTab, isOpen]);
 
     const loadPlans = async () => {
         setIsPlansLoading(true);
@@ -133,7 +132,7 @@ export default function CustomerSubscriptionDashboard({
                 setLedgerItems(ledgerRes.ledger);
             }
             if (historyRes.success && Array.isArray(historyRes.history)) {
-                setHistoryItems(historyRes.history);
+                setSubscriptionHistory(historyRes.history);
             }
         } catch (err) {
             console.error('Failed to load ledger / history:', err);
@@ -145,7 +144,7 @@ export default function CustomerSubscriptionDashboard({
     const loadPayments = async () => {
         setIsPaymentsLoading(true);
         try {
-            const res = await fetchCustomerPaymentHistory({ status: paymentFilter, perPage: 20 });
+            const res = await fetchCustomerPaymentHistory({ status: 'all', perPage: 25 });
             if (res.success && Array.isArray(res.transactions)) {
                 setPayments(res.transactions);
             } else {
@@ -173,682 +172,657 @@ export default function CustomerSubscriptionDashboard({
                 setUpgradeSuccessMsg(res);
                 setSelectedUpgradePlan(null);
                 setUpgradeNote('');
-                setUpgradePhone('');
             }
         } catch (err) {
-            console.error('Upgrade request error:', err);
+            console.error('Failed to submit upgrade request:', err);
         } finally {
             setIsSubmittingUpgrade(false);
         }
     };
 
-    if (!isOpen) return null;
+    // Derived values
+    const currentPlan = subData?.plan || null;
+    const quota = subData?.quota || null;
+    const allowance = quota?.monthly_allowance ?? (currentPlan?.monthly_scan_allowance || 0);
+    const isUnlimited = quota?.is_unlimited || allowance === -1;
+    const used = quota?.used_credits ?? 0;
+    const remaining = isUnlimited ? '∞' : Math.max(0, allowance - used);
+    const usagePercent = isUnlimited ? 0 : allowance > 0 ? Math.min(100, Math.round((used / allowance) * 100)) : 0;
 
-    const plan = subData?.plan || {};
-    const quota = subData?.quota || {};
-    const sub = subData?.subscription || {};
-    const workspaceInfo = subData?.workspace || currentWorkspace || {};
-    const isPaid = (plan.price ?? 0) > 0;
-    const isUnlimited = quota.is_unlimited || plan.is_unlimited_scans;
-    const used = quota.used_credits ?? 0;
-    const allowance = isUnlimited ? 'Unlimited' : (quota.monthly_allowance ?? plan.monthly_scan_allowance ?? 50);
-    const remaining = isUnlimited ? 'Unlimited' : (quota.remaining_credits ?? Math.max(0, allowance - used));
-    const reserved = quota.reserved_credits ?? 0;
-    const usagePercent = isUnlimited ? 0 : Math.min(100, Math.round((used / (allowance || 1)) * 100));
+    const billingStart = subData?.subscription?.billing_period_starts_at
+        ? new Date(subData.subscription.billing_period_starts_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+        : 'Active cycle';
+    const billingEnd = subData?.subscription?.billing_period_ends_at
+        ? new Date(subData.subscription.billing_period_ends_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+        : 'Next renewal';
 
-    const formatDate = (dateStr) => {
-        if (!dateStr) return '—';
-        try {
-            return new Date(dateStr).toLocaleDateString('en-IN', {
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric',
-            });
-        } catch {
-            return dateStr;
-        }
+    const whatsappDirectLink = (planName) => {
+        const text = `Hello! I would like to upgrade my workspace "${currentWorkspace?.name || 'My Workspace'}" to the ${planName || 'Pro'} plan.`;
+        return `https://wa.me/917600198889?text=${encodeURIComponent(text)}`;
     };
 
-    return (
-        <div className="fixed inset-0 z-50 overflow-hidden flex items-end sm:items-center justify-center p-0 sm:p-4 select-none">
-            {/* Backdrop */}
-            <div
-                className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
-                onClick={onClose}
-            />
+    return createPortal(
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+            {/* Backdrop Dismiss */}
+            <div className="fixed inset-0 -z-10" onClick={onClose} />
 
-            {/* Modal Sheet Container */}
-            <div className="relative bg-white dark:bg-zinc-900 rounded-t-[32px] sm:rounded-3xl w-full max-w-lg shadow-2xl flex flex-col max-h-[92vh] z-10 animate-tab-fade overflow-hidden border border-black/[0.06] dark:border-zinc-800">
+            {/* Modal Card - Clean Light Mobile App Shell */}
+            <div className="relative bg-[#FBFBFC] rounded-t-[32px] sm:rounded-3xl w-full max-w-lg shadow-2xl z-10 max-h-[90vh] flex flex-col overflow-hidden animate-tab-fade border border-black/[0.04]">
+                
                 {/* Mobile Drag Indicator */}
-                <div className="w-10 h-1 bg-zinc-200 dark:bg-zinc-700 rounded-full mx-auto sm:hidden mt-2.5 mb-1" />
+                <div
+                    onClick={onClose}
+                    className="w-10 h-1 bg-zinc-300 rounded-full mx-auto sm:hidden mt-3 cursor-pointer shrink-0"
+                />
 
-                {/* Header */}
-                <div className="p-4 sm:p-5 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between shrink-0 bg-zinc-50/50 dark:bg-zinc-950/40">
-                    <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-10 h-10 rounded-2xl bg-black text-white dark:bg-white dark:text-zinc-950 flex items-center justify-center shrink-0 shadow-sm">
-                            <CreditCard className="w-5 h-5" />
+                {/* Clean Mobile App Header */}
+                <div className="p-5 pb-3 bg-white border-b border-zinc-100 flex items-center justify-between shrink-0">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-zinc-950 text-white flex items-center justify-center shadow-sm">
+                            <CreditCard className="w-5 h-5 text-emerald-400" />
                         </div>
-                        <div className="min-w-0">
+                        <div>
                             <div className="flex items-center gap-2">
-                                <h3 className="text-sm font-extrabold text-zinc-950 dark:text-white truncate">
-                                    Subscription & Usage
+                                <h3 className="text-base font-extrabold text-zinc-950 leading-tight">
+                                    Subscription & Credits
                                 </h3>
-                                <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${
-                                    isPaid
-                                        ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20'
-                                        : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700'
-                                }`}>
-                                    {plan.name || 'Free Plan'}
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    {currentPlan?.name || 'Active'}
                                 </span>
                             </div>
-                            <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate flex items-center gap-1 mt-0.5">
-                                <Building2 className="w-3 h-3 text-zinc-400" />
-                                <span className="font-semibold text-zinc-700 dark:text-zinc-300">{workspaceInfo.name}</span>
-                                <span className="text-[10px] uppercase font-bold text-zinc-400">({userRole})</span>
+                            <p className="text-xs text-zinc-500 font-medium">
+                                {currentWorkspace?.name || 'Workspace'} • <span className="capitalize">{userRole}</span>
                             </p>
                         </div>
                     </div>
                     <button
                         onClick={onClose}
-                        className="w-8 h-8 rounded-full bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+                        className="w-8 h-8 rounded-full bg-zinc-100 hover:bg-zinc-200 flex items-center justify-center text-zinc-500 transition-colors active:scale-95"
                     >
                         <X className="w-4 h-4" />
                     </button>
                 </div>
 
-                {/* Member Read-Only Notice */}
-                {isMember && (
-                    <div className="px-4 py-2.5 bg-zinc-50 dark:bg-zinc-800/40 border-b border-zinc-100 dark:border-zinc-800 flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-                        <Lock className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-                        <span>You are viewing workspace scan credits. Billing is managed by your workspace Owner.</span>
-                    </div>
-                )}
-
-                {/* Navigation Tabs */}
-                {!isMember && (
-                    <div className="flex border-b border-zinc-100 dark:border-zinc-800 px-4 bg-zinc-50/30 dark:bg-zinc-950/30 shrink-0 gap-1 overflow-x-auto text-xs">
+                {/* Segmented Native Mobile Switcher (No scrollbar, perfectly balanced) */}
+                <div className="px-5 pt-3 pb-2 bg-white border-b border-zinc-100 shrink-0">
+                    <div className="bg-zinc-100/90 p-1 rounded-2xl grid grid-cols-3 gap-1">
                         <button
-                            type="button"
                             onClick={() => setActiveTab('overview')}
-                            className={`py-3 px-3 font-semibold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
+                            className={`py-2 text-xs font-bold rounded-xl transition-all text-center flex items-center justify-center gap-1.5 ${
                                 activeTab === 'overview'
-                                    ? 'border-orange-500 text-orange-600 dark:text-orange-400 font-bold'
-                                    : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                                    ? 'bg-white text-zinc-950 shadow-sm'
+                                    : 'text-zinc-600 hover:text-zinc-900'
                             }`}
                         >
-                            <BarChart3 className="w-3.5 h-3.5" />
-                            <span>Usage & Quota</span>
+                            <Zap className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>My Plan</span>
                         </button>
                         <button
-                            type="button"
-                            onClick={() => setActiveTab('upgrade')}
-                            className={`py-3 px-3 font-semibold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
+                            onClick={() => {
+                                if (isMember) {
+                                    setActiveTab('upgrade');
+                                } else {
+                                    setActiveTab('upgrade');
+                                    if (plans.length === 0) loadPlans();
+                                }
+                            }}
+                            className={`py-2 text-xs font-bold rounded-xl transition-all text-center flex items-center justify-center gap-1.5 ${
                                 activeTab === 'upgrade'
-                                    ? 'border-orange-500 text-orange-600 dark:text-orange-400 font-bold'
-                                    : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                                    ? 'bg-white text-zinc-950 shadow-sm'
+                                    : 'text-zinc-600 hover:text-zinc-900'
                             }`}
                         >
-                            <Zap className="w-3.5 h-3.5" />
-                            <span>Plans & Upgrade</span>
+                            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                            <span>Upgrade</span>
                         </button>
                         <button
-                            type="button"
-                            onClick={() => setActiveTab('ledger')}
-                            className={`py-3 px-3 font-semibold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
-                                activeTab === 'ledger'
-                                    ? 'border-orange-500 text-orange-600 dark:text-orange-400 font-bold'
-                                    : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                            onClick={() => {
+                                setActiveTab('history');
+                                if (!isMember) {
+                                    if (historySubTab === 'scans' && ledgerItems.length === 0) loadLedger();
+                                    if (historySubTab === 'payments' && payments.length === 0) loadPayments();
+                                }
+                            }}
+                            className={`py-2 text-xs font-bold rounded-xl transition-all text-center flex items-center justify-center gap-1.5 ${
+                                activeTab === 'history'
+                                    ? 'bg-white text-zinc-950 shadow-sm'
+                                    : 'text-zinc-600 hover:text-zinc-900'
                             }`}
                         >
-                            <History className="w-3.5 h-3.5" />
-                            <span>Usage Ledger</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setActiveTab('payments')}
-                            className={`py-3 px-3 font-semibold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
-                                activeTab === 'payments'
-                                    ? 'border-orange-500 text-orange-600 dark:text-orange-400 font-bold'
-                                    : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-                            }`}
-                        >
-                            <Receipt className="w-3.5 h-3.5" />
-                            <span>Payment History</span>
+                            <History className="w-3.5 h-3.5 text-zinc-700" />
+                            <span>History</span>
                         </button>
                     </div>
-                )}
+                </div>
 
-                {/* Content Area */}
-                <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+                {/* Scrollable Content Body */}
+                <div className="flex-1 overflow-y-auto p-5 space-y-4">
                     {isLoading ? (
-                        <div className="py-16 text-center text-zinc-400">
-                            <Loader2 className="w-6 h-6 animate-spin mx-auto text-orange-500 mb-2" />
-                            <p className="text-xs font-semibold">Loading subscription status...</p>
+                        <div className="py-16 text-center space-y-3">
+                            <Loader2 className="w-8 h-8 animate-spin text-zinc-400 mx-auto" />
+                            <p className="text-xs text-zinc-500 font-medium">Loading subscription details...</p>
                         </div>
                     ) : (
                         <>
-                            {/* TAB 1: OVERVIEW & USAGE */}
+                            {/* TAB 1: OVERVIEW */}
                             {activeTab === 'overview' && (
-                                <div className="space-y-4">
-                                    {/* Upgrade Success Notification */}
-                                    {upgradeSuccessMsg && (
-                                        <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/50 text-xs text-emerald-800 dark:text-emerald-300 space-y-1">
-                                            <p className="font-bold flex items-center gap-1.5">
-                                                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                                                Upgrade Request Submitted!
-                                            </p>
-                                            <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
-                                                {upgradeSuccessMsg.message}
-                                            </p>
-                                        </div>
-                                    )}
-
-                                    {/* Plan Hero Tile */}
-                                    <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-tr from-zinc-900 to-zinc-800 text-white shadow-sm space-y-3 relative overflow-hidden">
-                                        <div className="flex items-start justify-between gap-3 relative z-10">
+                                <div className="space-y-4 animate-tab-fade">
+                                    {/* Native App Hero Card */}
+                                    <div className="bg-gradient-to-br from-zinc-950 via-zinc-900 to-black text-white p-5 rounded-3xl shadow-md relative overflow-hidden space-y-4">
+                                        <div className="flex items-start justify-between">
                                             <div>
-                                                <span className="text-[10px] font-bold uppercase tracking-wider text-orange-400 block mb-1">
-                                                    Current Active Plan
+                                                <span className="text-[10px] font-bold tracking-wider uppercase text-emerald-400 block mb-0.5">
+                                                    Current Subscription
                                                 </span>
                                                 <h4 className="text-xl font-extrabold tracking-tight">
-                                                    {plan.name || 'Free Tier'}
+                                                    {currentPlan?.name || 'Free Plan'}
                                                 </h4>
-                                                <p className="text-xs text-zinc-300 mt-0.5">
-                                                    {plan.description || 'Core OCR business card scanning for small booths'}
-                                                </p>
                                             </div>
-
-                                            <div className="text-right shrink-0">
-                                                <span className="text-2xl font-black text-white">
-                                                    {isPaid ? `₹${Number(plan.price).toLocaleString('en-IN')}` : '₹0'}
+                                            <div className="text-right">
+                                                <span className="text-lg font-black text-white">
+                                                    {currentPlan?.formatted_price || '₹0'}
                                                 </span>
-                                                <span className="text-[10px] text-zinc-400 block">/ {plan.billing_interval || 'month'}</span>
+                                                <span className="text-[10px] text-zinc-400 block">/ month</span>
                                             </div>
                                         </div>
 
-                                        {/* Billing Dates */}
-                                        <div className="pt-2.5 border-t border-zinc-700/80 flex items-center justify-between text-xs text-zinc-300 relative z-10">
-                                            <span className="flex items-center gap-1 text-[11px] text-zinc-400">
-                                                <Calendar className="w-3.5 h-3.5" />
-                                                Billing Cycle
-                                            </span>
-                                            <span className="font-mono text-[11px] font-semibold">
-                                                {formatDate(sub.billing_period_starts_at)} — {formatDate(sub.billing_period_ends_at)}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    {/* Scan Credits Quota Meter */}
-                                    <div className="p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200/80 dark:border-zinc-700/80 space-y-3">
-                                        <div className="flex items-center justify-between text-xs">
-                                            <div className="flex items-center gap-1.5 font-bold text-zinc-900 dark:text-white">
-                                                <Sparkles className="w-4 h-4 text-orange-500" />
-                                                <span>Monthly Scan Allowance</span>
+                                        {/* Scan Quota Progress */}
+                                        <div className="space-y-2 pt-1">
+                                            <div className="flex justify-between items-baseline text-xs font-bold">
+                                                <span className="text-zinc-400">Available Scan Balance</span>
+                                                <span className="text-white text-sm font-extrabold">
+                                                    <span className="text-emerald-400 text-lg">{remaining}</span> / {isUnlimited ? '∞' : allowance} left
+                                                </span>
                                             </div>
-                                            <span className="font-extrabold text-sm text-zinc-900 dark:text-white font-mono">
-                                                {used} / {allowance}
-                                            </span>
-                                        </div>
-
-                                        {/* Progress Bar */}
-                                        {!isUnlimited ? (
-                                            <div className="w-full bg-zinc-200 dark:bg-zinc-700 rounded-full h-2.5 overflow-hidden">
+                                            <div className="w-full h-2.5 bg-zinc-800 rounded-full overflow-hidden p-0.5">
                                                 <div
-                                                    className={`h-full transition-all duration-300 rounded-full ${
-                                                        usagePercent >= 90
-                                                            ? 'bg-rose-500'
-                                                            : usagePercent >= 70
-                                                            ? 'bg-amber-500'
-                                                            : 'bg-orange-500'
-                                                    }`}
-                                                    style={{ width: `${usagePercent}%` }}
+                                                    className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+                                                    style={{ width: `${Math.min(100, Math.max(5, usagePercent))}%` }}
                                                 />
                                             </div>
-                                        ) : (
-                                            <div className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-xs font-semibold flex items-center gap-1.5">
-                                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                                <span>Unlimited Card Scans Active</span>
-                                            </div>
-                                        )}
-
-                                        {/* Metric Pills */}
-                                        <div className="grid grid-cols-3 gap-2 pt-1 text-center">
-                                            <div className="p-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-700/60">
-                                                <span className="text-[10px] text-zinc-400 block font-medium">Allowance</span>
-                                                <span className="text-xs font-bold text-zinc-900 dark:text-white mt-0.5 block">{allowance}</span>
-                                            </div>
-                                            <div className="p-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-700/60">
-                                                <span className="text-[10px] text-zinc-400 block font-medium">Saved Cards</span>
-                                                <span className="text-xs font-bold text-zinc-900 dark:text-white mt-0.5 block">{used}</span>
-                                            </div>
-                                            <div className="p-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-700/60">
-                                                <span className="text-[10px] text-zinc-400 block font-medium">Remaining</span>
-                                                <span className={`text-xs font-extrabold mt-0.5 block ${remaining === 0 ? 'text-rose-600' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                                                    {remaining}
-                                                </span>
+                                            <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-0.5">
+                                                <span>Used this cycle: <strong className="text-zinc-200">{used} cards</strong></span>
+                                                <span>{usagePercent}% utilized</span>
                                             </div>
                                         </div>
 
-                                        {/* Explanation Note per Section 2 */}
-                                        <div className="flex items-start gap-2 pt-2 border-t border-zinc-200/60 dark:border-zinc-700/60 text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
-                                            <Info className="w-3.5 h-3.5 text-zinc-400 shrink-0 mt-0.5" />
+                                        {/* Friendly policy notice */}
+                                        <div className="bg-white/10 rounded-2xl p-3 text-[11px] text-zinc-300 flex items-center gap-2 border border-white/10">
+                                            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                                             <span>
-                                                <strong>1 successfully saved business card consumes 1 credit.</strong> Failed extractions or discarded previews never consume credits.
+                                                1 successfully saved card consumes 1 credit. Failed scans never use credits.
                                             </span>
                                         </div>
                                     </div>
 
-                                    {/* Multi-Workspace Overview per Section 1 */}
-                                    {subData?.workspaces_summary && subData.workspaces_summary.length > 1 && (
-                                        <div className="p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200/80 dark:border-zinc-700/80 space-y-2.5">
-                                            <h5 className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">
-                                                Your Workspace Subscriptions ({subData.workspaces_summary.length})
-                                            </h5>
-                                            <div className="space-y-1.5">
-                                                {subData.workspaces_summary.map((ws) => (
-                                                    <div
-                                                        key={ws.id}
-                                                        className={`p-2.5 rounded-xl border flex items-center justify-between text-xs transition-colors ${
-                                                            ws.is_current_workspace
-                                                                ? 'bg-white dark:bg-zinc-900 border-orange-500/30 shadow-2xs'
-                                                                : 'bg-white/60 dark:bg-zinc-900/60 border-zinc-200/60 dark:border-zinc-800'
-                                                        }`}
-                                                    >
-                                                        <div className="flex items-center gap-2 min-w-0">
-                                                            <Building2 className={`w-3.5 h-3.5 ${ws.is_current_workspace ? 'text-orange-500' : 'text-zinc-400'}`} />
-                                                            <div className="min-w-0">
-                                                                <p className="font-semibold text-zinc-900 dark:text-white truncate">
-                                                                    {ws.name}
-                                                                </p>
-                                                                <p className="text-[10px] text-zinc-400">
-                                                                    Role: {ws.role} · {ws.subscription_status}
-                                                                </p>
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="flex items-center gap-2 shrink-0">
-                                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
-                                                                {ws.plan_name}
-                                                            </span>
-                                                            {!ws.is_current_workspace && onSwitchWorkspace && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => {
-                                                                        onSwitchWorkspace(ws);
-                                                                        onClose();
-                                                                    }}
-                                                                    className="text-[10px] font-bold text-orange-600 dark:text-orange-400 hover:underline"
-                                                                >
-                                                                    Switch
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                ))}
+                                    {/* Plan Inclusions / Features */}
+                                    <div className="bg-white rounded-3xl p-4 sm:p-5 border border-zinc-200/70 shadow-sm space-y-3">
+                                        <h5 className="text-xs font-bold text-zinc-950 uppercase tracking-wider">
+                                            Included in your plan
+                                        </h5>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs text-zinc-700">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-5 h-5 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                                                    <Check className="w-3 h-3 stroke-[3]" />
+                                                </div>
+                                                <span className="font-medium">Hindi, Gujarati & English OCR</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-5 h-5 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                                                    <Check className="w-3 h-3 stroke-[3]" />
+                                                </div>
+                                                <span className="font-medium">One-Tap vCard Phone Save</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-5 h-5 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                                                    <Check className="w-3 h-3 stroke-[3]" />
+                                                </div>
+                                                <span className="font-medium">CSV & Excel Directory Export</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-5 h-5 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                                                    <Check className="w-3 h-3 stroke-[3]" />
+                                                </div>
+                                                <span className="font-medium">Multi-User Booth Scanning</span>
                                             </div>
                                         </div>
-                                    )}
+                                    </div>
 
-                                    {/* Action row to browse plans */}
+                                    {/* Billing Cycle Details */}
+                                    <div className="bg-white rounded-3xl p-4 sm:p-5 border border-zinc-200/70 shadow-sm space-y-2.5 text-xs">
+                                        <div className="flex items-center justify-between pb-2 border-b border-zinc-100">
+                                            <span className="text-zinc-500">Current Period</span>
+                                            <span className="font-bold text-zinc-900">{billingStart} — {billingEnd}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between pb-2 border-b border-zinc-100">
+                                            <span className="text-zinc-500">Workspace Status</span>
+                                            <span className="inline-flex items-center gap-1.5 font-bold text-emerald-700">
+                                                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                                                Active & Synchronized
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-zinc-500">Your Permission</span>
+                                            <span className="font-bold text-zinc-900 capitalize">
+                                                {userRole} {isMember ? '(View only)' : '(Full billing access)'}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Action to Upgrade */}
                                     {!isMember && (
                                         <button
-                                            type="button"
-                                            onClick={() => setActiveTab('upgrade')}
-                                            className="w-full py-3 px-4 rounded-2xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+                                            onClick={() => {
+                                                setActiveTab('upgrade');
+                                                if (plans.length === 0) loadPlans();
+                                            }}
+                                            className="w-full py-3.5 px-4 rounded-2xl bg-zinc-950 hover:bg-black text-white text-xs font-bold transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm"
                                         >
-                                            <Zap className="w-4 h-4" />
-                                            <span>Upgrade Plan & Add More Credits</span>
-                                            <ArrowRight className="w-3.5 h-3.5" />
+                                            <Sparkles className="w-4 h-4 text-amber-400" />
+                                            <span>Upgrade for More Monthly Scans</span>
+                                            <ArrowRight className="w-4 h-4 ml-1" />
                                         </button>
                                     )}
-                                </div>
-                            )}
 
-                            {/* TAB 2: PLANS & UPGRADE */}
-                            {activeTab === 'upgrade' && (
-                                <div className="space-y-4">
-                                    <div className="text-center space-y-1">
-                                        <h4 className="text-sm font-extrabold text-zinc-950 dark:text-white">
-                                            Choose the Right Plan for Your Booth
-                                        </h4>
-                                        <p className="text-xs text-zinc-500">
-                                            Scale scan allowances and team members across all trade exhibitions.
-                                        </p>
-                                    </div>
-
-                                    {isPlansLoading ? (
-                                        <div className="py-12 text-center text-zinc-400">
-                                            <Loader2 className="w-6 h-6 animate-spin mx-auto text-orange-500 mb-2" />
-                                            Loading available SaaS plans...
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-3">
-                                            {plans.map((p) => {
-                                                const isCurrent = p.is_current;
-                                                const isPlanPaid = p.price > 0;
-
-                                                return (
-                                                    <div
-                                                        key={p.id}
-                                                        className={`p-4 rounded-2xl border transition-all ${
-                                                            isCurrent
-                                                                ? 'bg-zinc-50 dark:bg-zinc-800/40 border-orange-500/50 shadow-2xs'
-                                                                : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 hover:border-zinc-300'
-                                                        }`}
-                                                    >
-                                                        <div className="flex items-start justify-between gap-3">
-                                                            <div>
-                                                                <div className="flex items-center gap-2">
-                                                                    <h5 className="text-sm font-extrabold text-zinc-950 dark:text-white">
-                                                                        {p.name}
-                                                                    </h5>
-                                                                    {isCurrent && (
-                                                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500 text-white">
-                                                                            Current
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                                <p className="text-xs text-zinc-500 mt-0.5">
-                                                                    {p.description || `${p.monthly_scan_allowance === -1 ? 'Unlimited' : p.monthly_scan_allowance} monthly scan credits`}
-                                                                </p>
-                                                            </div>
-
-                                                            <div className="text-right shrink-0">
-                                                                <span className="text-lg font-black text-zinc-950 dark:text-white">
-                                                                    {isPlanPaid ? `₹${Number(p.price).toLocaleString('en-IN')}` : '₹0'}
-                                                                </span>
-                                                                <span className="text-[10px] text-zinc-400 block">/ mo</span>
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Features list */}
-                                                        {p.features && p.features.length > 0 && (
-                                                            <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800/80 flex flex-wrap gap-1.5">
-                                                                {p.features.slice(0, 4).map((f) => (
-                                                                    <span
-                                                                        key={f}
-                                                                        className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300"
-                                                                    >
-                                                                        <Check className="w-2.5 h-2.5 text-emerald-500" />
-                                                                        {f.replace(/_/g, ' ')}
-                                                                    </span>
-                                                                ))}
-                                                            </div>
-                                                        )}
-
-                                                        {/* Action button */}
-                                                        <div className="mt-3.5 pt-2 flex items-center justify-end">
-                                                            {isCurrent ? (
-                                                                <span className="text-xs font-bold text-zinc-400 flex items-center gap-1">
-                                                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                                                                    Active on this workspace
-                                                                </span>
-                                                            ) : (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => setSelectedUpgradePlan(p)}
-                                                                    className="px-3.5 py-1.5 rounded-xl bg-zinc-950 hover:bg-black text-white text-xs font-bold transition-all active:scale-95 flex items-center gap-1 cursor-pointer"
-                                                                >
-                                                                    <span>Request Upgrade</span>
-                                                                    <ArrowRight className="w-3 h-3" />
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
-
-                                    {/* Upgrade Request Sheet / Modal */}
-                                    {selectedUpgradePlan && (
-                                        <div className="p-4 rounded-2xl bg-orange-50/70 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900/50 space-y-3">
-                                            <div className="flex items-center justify-between">
-                                                <h5 className="text-xs font-bold text-orange-950 dark:text-orange-200 flex items-center gap-1.5">
-                                                    <Zap className="w-4 h-4 text-orange-600" />
-                                                    Upgrade Request: {selectedUpgradePlan.name}
-                                                </h5>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setSelectedUpgradePlan(null)}
-                                                    className="text-xs text-zinc-400 hover:text-zinc-600"
-                                                >
-                                                    Cancel
-                                                </button>
-                                            </div>
-
-                                            <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
-                                                Direct gateway checkout is currently being provisioned. Submit this request and our sales team will activate your plan immediately with GST invoice.
-                                            </p>
-
-                                            <form onSubmit={handleUpgradeSubmit} className="space-y-2.5">
-                                                <div>
-                                                    <label className="block text-[10px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-1">
-                                                        Contact Phone / WhatsApp
-                                                    </label>
-                                                    <input
-                                                        type="text"
-                                                        value={upgradePhone}
-                                                        onChange={(e) => setUpgradePhone(e.target.value)}
-                                                        placeholder="+91 98765 43210"
-                                                        className="w-full text-xs p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-orange-500"
-                                                    />
-                                                </div>
-
-                                                <div>
-                                                    <label className="block text-[10px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-1">
-                                                        Special Instructions / GST details (Optional)
-                                                    </label>
-                                                    <textarea
-                                                        value={upgradeNote}
-                                                        onChange={(e) => setUpgradeNote(e.target.value)}
-                                                        rows={2}
-                                                        placeholder="E.g., Need 3 additional booth reps for upcoming trade show..."
-                                                        className="w-full text-xs p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-orange-500"
-                                                    />
-                                                </div>
-
-                                                <button
-                                                    type="submit"
-                                                    disabled={isSubmittingUpgrade}
-                                                    className="w-full py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                                >
-                                                    {isSubmittingUpgrade ? (
-                                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                                    ) : (
-                                                        <Zap className="w-3.5 h-3.5" />
-                                                    )}
-                                                    Submit Plan Upgrade Request
-                                                </button>
-                                            </form>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
-                            {/* TAB 3: USAGE LEDGER & SUBSCRIPTION HISTORY */}
-                            {activeTab === 'ledger' && (
-                                <div className="space-y-4">
-                                    {/* Scan Usage Ledger Section */}
-                                    <div className="space-y-2.5">
-                                        <div className="flex items-center justify-between">
-                                            <h5 className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">
-                                                Scan Deductions & Credit History
-                                            </h5>
-                                            <span className="text-[10px] text-zinc-400">
-                                                Real-time usage
+                                    {/* Other Workspaces Quick Switch */}
+                                    {subData?.workspaces_summary && subData.workspaces_summary.length > 1 && (
+                                        <div className="bg-zinc-50 rounded-3xl p-4 border border-zinc-200/70 space-y-2">
+                                            <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block">
+                                                Your Other Workspaces
                                             </span>
-                                        </div>
-
-                                        {isLedgerLoading ? (
-                                            <div className="py-8 text-center text-zinc-400">
-                                                <Loader2 className="w-5 h-5 animate-spin mx-auto text-orange-500 mb-1" />
-                                                Loading usage records...
-                                            </div>
-                                        ) : ledgerItems.length === 0 ? (
-                                            <div className="p-6 rounded-2xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200/60 dark:border-zinc-700/60 text-center text-xs text-zinc-400">
-                                                No scan usage recorded in this billing period.
-                                            </div>
-                                        ) : (
-                                            <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-                                                {ledgerItems.map((item) => (
-                                                    <div
-                                                        key={item.id}
-                                                        className="p-2.5 rounded-xl border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs flex items-center justify-between"
-                                                    >
-                                                        <div>
-                                                            <p className="font-semibold text-zinc-900 dark:text-white">
-                                                                {item.operation_type === 'single_scan' ? 'Card Scan' : 'Batch Scan'}
-                                                                <span className="text-[10px] text-zinc-400 font-normal ml-1">
-                                                                    by {item.user_name}
-                                                                </span>
-                                                            </p>
-                                                            <p className="text-[10px] text-zinc-400">
-                                                                {formatDate(item.confirmed_at || item.created_at)}
-                                                            </p>
-                                                        </div>
-
-                                                        <span className="font-bold text-orange-600 dark:text-orange-400 font-mono">
-                                                            -{item.quantity} credit
-                                                        </span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Subscription Plan Change History Section */}
-                                    <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800 space-y-2.5">
-                                        <h5 className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">
-                                            Plan Change History
-                                        </h5>
-
-                                        {historyItems.length === 0 ? (
-                                            <div className="p-4 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 text-center text-xs text-zinc-400">
-                                                Initial Free Tier assigned upon workspace registration.
-                                            </div>
-                                        ) : (
-                                            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                                                {historyItems.map((h) => (
-                                                    <div
-                                                        key={h.id}
-                                                        className="p-2.5 rounded-xl border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs space-y-1"
-                                                    >
-                                                        <div className="flex items-center justify-between">
-                                                            <div className="flex items-center gap-1 font-bold text-zinc-900 dark:text-white text-xs">
-                                                                {h.previous_plan_name && (
-                                                                    <>
-                                                                        <span className="line-through text-zinc-400 font-normal">
-                                                                            {h.previous_plan_name}
-                                                                        </span>
-                                                                        <ArrowRight className="w-3 h-3 text-zinc-400" />
-                                                                    </>
-                                                                )}
-                                                                <span>{h.plan_name || 'Free Plan'}</span>
+                                            <div className="space-y-1.5">
+                                                {subData.workspaces_summary
+                                                    .filter((ws) => !ws.is_current_workspace)
+                                                    .map((ws) => (
+                                                        <div
+                                                            key={ws.id}
+                                                            className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-zinc-200/60 text-xs"
+                                                        >
+                                                            <div className="flex items-center gap-2">
+                                                                <Building2 className="w-3.5 h-3.5 text-zinc-500" />
+                                                                <span className="font-bold text-zinc-900">{ws.name}</span>
                                                             </div>
-                                                            <span className="text-[10px] font-mono text-zinc-400">
-                                                                {formatDate(h.created_at)}
+                                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-700">
+                                                                {ws.plan_name}
                                                             </span>
                                                         </div>
-
-                                                        <p className="text-[10px] text-zinc-400">
-                                                            Source: {h.assignment_source === 'admin_assigned' ? 'Admin Assigned' : h.assignment_source === 'system_free' ? 'System Free' : 'Checkout'}
-                                                            {h.reason && ` · "${h.reason}"`}
-                                                        </p>
-                                                    </div>
-                                                ))}
+                                                    ))}
                                             </div>
-                                        )}
-                                    </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
-                            {/* TAB 4: PAYMENT HISTORY */}
-                            {activeTab === 'payments' && (
-                                <div className="space-y-3.5">
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <h5 className="text-xs font-bold text-zinc-950 dark:text-white">
-                                                Workspace Payment Records
-                                            </h5>
-                                            <p className="text-[11px] text-zinc-500">
-                                                Past transactions and invoices for {workspaceInfo.name}
+                            {/* TAB 2: UPGRADE PLANS */}
+                            {activeTab === 'upgrade' && (
+                                <div className="space-y-4 animate-tab-fade">
+                                    {isMember ? (
+                                        <div className="bg-white rounded-3xl p-6 border border-zinc-200/70 text-center space-y-3">
+                                            <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto">
+                                                <Lock className="w-6 h-6" />
+                                            </div>
+                                            <h4 className="text-base font-extrabold text-zinc-950">
+                                                Member Role Restricted
+                                            </h4>
+                                            <p className="text-xs text-zinc-500 max-w-xs mx-auto">
+                                                Only workspace Owners and Admins can purchase plans or request quota upgrades. Please reach out to your workspace owner to upgrade scans.
                                             </p>
                                         </div>
+                                    ) : (
+                                        <>
+                                            {upgradeSuccessMsg && (
+                                                <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs space-y-2">
+                                                    <div className="flex items-center gap-2 font-bold">
+                                                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                                        <span>Upgrade Request Submitted!</span>
+                                                    </div>
+                                                    <p className="text-emerald-700 leading-relaxed">
+                                                        {upgradeSuccessMsg.message}
+                                                    </p>
+                                                    {upgradeSuccessMsg.support?.whatsapp && (
+                                                        <a
+                                                            href={upgradeSuccessMsg.support.whatsapp}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 text-white font-bold text-[11px] hover:bg-emerald-700 mt-1"
+                                                        >
+                                                            <MessageCircle className="w-3.5 h-3.5" />
+                                                            <span>Open WhatsApp Chat Now</span>
+                                                        </a>
+                                                    )}
+                                                </div>
+                                            )}
 
-                                        {/* Status Filter */}
-                                        <div className="inline-flex rounded-lg bg-zinc-100 dark:bg-zinc-800 p-0.5 border border-zinc-200 dark:border-zinc-700">
-                                            {['all', 'successful', 'pending', 'failed'].map((st) => (
+                                            {isPlansLoading ? (
+                                                <div className="py-12 text-center space-y-2">
+                                                    <Loader2 className="w-6 h-6 animate-spin text-zinc-400 mx-auto" />
+                                                    <p className="text-xs text-zinc-500">Loading available plans...</p>
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-3">
+                                                    {plans.map((p) => {
+                                                        const isThisCurrent = p.is_current;
+                                                        const scans = p.monthly_scan_allowance === -1 ? 'Unlimited' : p.monthly_scan_allowance;
+
+                                                        return (
+                                                            <div
+                                                                key={p.id}
+                                                                className={`p-4 rounded-3xl border transition-all text-left space-y-3 ${
+                                                                    isThisCurrent
+                                                                        ? 'bg-zinc-900 text-white border-zinc-900 shadow-sm'
+                                                                        : 'bg-white hover:border-zinc-300 text-zinc-900 border-zinc-200/80 shadow-sm'
+                                                                }`}
+                                                            >
+                                                                <div className="flex items-start justify-between">
+                                                                    <div>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <h4 className="text-base font-extrabold">
+                                                                                {p.name}
+                                                                            </h4>
+                                                                            {isThisCurrent && (
+                                                                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                                                                    Current Plan
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                        <p className={`text-xs mt-0.5 ${isThisCurrent ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                                                                            {p.description || `${scans} scan credits every month`}
+                                                                        </p>
+                                                                    </div>
+                                                                    <div className="text-right">
+                                                                        <span className="text-lg font-black">
+                                                                            {p.formatted_price}
+                                                                        </span>
+                                                                        <span className={`text-[10px] block ${isThisCurrent ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                                                                            / month
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Allowance badge */}
+                                                                <div className={`p-2.5 rounded-2xl flex items-center justify-between text-xs font-bold ${
+                                                                    isThisCurrent ? 'bg-zinc-800 text-emerald-400' : 'bg-zinc-50 text-emerald-700 border border-zinc-200/60'
+                                                                }`}>
+                                                                    <span>Monthly Allowance</span>
+                                                                    <span>{scans} Cards / Mo</span>
+                                                                </div>
+
+                                                                {/* Plan Actions */}
+                                                                {!isThisCurrent && (
+                                                                    <div className="flex items-center gap-2 pt-1">
+                                                                        <a
+                                                                            href={whatsappDirectLink(p.name)}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className="flex-1 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                                                                        >
+                                                                            <MessageCircle className="w-3.5 h-3.5" />
+                                                                            <span>Instant WhatsApp Upgrade</span>
+                                                                        </a>
+                                                                        <button
+                                                                            onClick={() => setSelectedUpgradePlan(p)}
+                                                                            className="py-2.5 px-3 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1"
+                                                                        >
+                                                                            <span>Inquire</span>
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+
+                                            {/* Upgrade Request Drawer / Form */}
+                                            {selectedUpgradePlan && (
+                                                <form
+                                                    onSubmit={handleUpgradeSubmit}
+                                                    className="bg-white p-4 rounded-3xl border border-zinc-200/80 shadow-md space-y-3 animate-tab-fade"
+                                                >
+                                                    <div className="flex items-center justify-between">
+                                                        <h5 className="text-xs font-extrabold text-zinc-950">
+                                                            Request Upgrade to "{selectedUpgradePlan.name}"
+                                                        </h5>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setSelectedUpgradePlan(null)}
+                                                            className="text-zinc-400 hover:text-zinc-700"
+                                                        >
+                                                            <X className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+
+                                                    <div>
+                                                        <label className="text-[11px] font-bold text-zinc-600 block mb-1">
+                                                            Contact Phone / WhatsApp Number
+                                                        </label>
+                                                        <input
+                                                            type="tel"
+                                                            placeholder="+91 98765 43210"
+                                                            value={upgradePhone}
+                                                            onChange={(e) => setUpgradePhone(e.target.value)}
+                                                            className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 focus:outline-none focus:ring-2 focus:ring-black"
+                                                        />
+                                                    </div>
+
+                                                    <div>
+                                                        <label className="text-[11px] font-bold text-zinc-600 block mb-1">
+                                                            Note or Expected Booth Volume (Optional)
+                                                        </label>
+                                                        <textarea
+                                                            rows={2}
+                                                            placeholder="Need additional scans for upcoming trade expo..."
+                                                            value={upgradeNote}
+                                                            onChange={(e) => setUpgradeNote(e.target.value)}
+                                                            className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 focus:outline-none focus:ring-2 focus:ring-black"
+                                                        />
+                                                    </div>
+
+                                                    <button
+                                                        type="submit"
+                                                        disabled={isSubmittingUpgrade}
+                                                        className="w-full py-2.5 px-4 rounded-xl bg-zinc-950 hover:bg-black text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50"
+                                                    >
+                                                        {isSubmittingUpgrade ? (
+                                                            <>
+                                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                                <span>Sending Request...</span>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                                                                <span>Submit Plan Upgrade Request</span>
+                                                            </>
+                                                        )}
+                                                    </button>
+                                                </form>
+                                            )}
+
+                                            {/* Support Hotline card */}
+                                            <div className="bg-zinc-50 rounded-2xl p-4 border border-zinc-200/60 flex items-center justify-between text-xs">
+                                                <div>
+                                                    <span className="font-bold text-zinc-900 block">Need custom enterprise quota?</span>
+                                                    <span className="text-[11px] text-zinc-500">Call sales team: +91 76001 98889</span>
+                                                </div>
+                                                <a
+                                                    href="tel:+917600198889"
+                                                    className="w-8 h-8 rounded-full bg-white border border-zinc-200 flex items-center justify-center text-zinc-800 shadow-sm active:scale-95"
+                                                >
+                                                    <PhoneCall className="w-3.5 h-3.5" />
+                                                </a>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* TAB 3: HISTORY (Activity & Payments) */}
+                            {activeTab === 'history' && (
+                                <div className="space-y-3 animate-tab-fade">
+                                    {isMember ? (
+                                        <div className="bg-white rounded-3xl p-6 border border-zinc-200/70 text-center space-y-3">
+                                            <div className="w-12 h-12 rounded-2xl bg-zinc-100 text-zinc-600 flex items-center justify-center mx-auto">
+                                                <Lock className="w-6 h-6" />
+                                            </div>
+                                            <h4 className="text-base font-extrabold text-zinc-950">
+                                                Restricted to Workspace Admins
+                                            </h4>
+                                            <p className="text-xs text-zinc-500 max-w-xs mx-auto">
+                                                Detailed scan deduction logs and payment transaction history are reserved for workspace Owners and Admins.
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            {/* Sub-tab pills */}
+                                            <div className="flex items-center gap-2 pb-1">
                                                 <button
-                                                    key={st}
-                                                    type="button"
-                                                    onClick={() => setPaymentFilter(st)}
-                                                    className={`px-2 py-0.5 rounded-md text-[10px] font-medium capitalize transition-all cursor-pointer ${
-                                                        paymentFilter === st
-                                                            ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-white font-bold shadow-2xs'
-                                                            : 'text-zinc-500 hover:text-zinc-800'
+                                                    onClick={() => {
+                                                        setHistorySubTab('scans');
+                                                        if (ledgerItems.length === 0) loadLedger();
+                                                    }}
+                                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                                                        historySubTab === 'scans'
+                                                            ? 'bg-zinc-950 text-white'
+                                                            : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
                                                     }`}
                                                 >
-                                                    {st}
+                                                    Scan Activity ({ledgerItems.length})
                                                 </button>
-                                            ))}
-                                        </div>
-                                    </div>
+                                                <button
+                                                    onClick={() => {
+                                                        setHistorySubTab('payments');
+                                                        if (payments.length === 0) loadPayments();
+                                                    }}
+                                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                                                        historySubTab === 'payments'
+                                                            ? 'bg-zinc-950 text-white'
+                                                            : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                                                    }`}
+                                                >
+                                                    Payment Receipts ({payments.length})
+                                                </button>
+                                            </div>
 
-                                    {isPaymentsLoading ? (
-                                        <div className="py-12 text-center text-zinc-400">
-                                            <Loader2 className="w-5 h-5 animate-spin mx-auto text-orange-500 mb-2" />
-                                            Loading payment transactions...
-                                        </div>
-                                    ) : payments.length === 0 ? (
-                                        <div className="p-8 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 text-center space-y-2">
-                                            <Receipt className="w-8 h-8 mx-auto text-zinc-300 dark:text-zinc-600" />
-                                            <p className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                                                No payment transactions found
-                                            </p>
-                                            <p className="text-[11px] text-zinc-400 max-w-xs mx-auto">
-                                                No payment transactions match this filter. When subscriptions or invoices are processed, receipts will be listed here.
-                                            </p>
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-2">
-                                            {payments.map((p) => {
-                                                const statusClass =
-                                                    p.status === 'successful'
-                                                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50'
-                                                        : p.status === 'pending'
-                                                        ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900/50'
-                                                        : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/50';
-
-                                                return (
-                                                    <div
-                                                        key={p.id}
-                                                        className="p-3 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs space-y-1.5"
-                                                    >
-                                                        <div className="flex items-center justify-between">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="font-extrabold text-zinc-950 dark:text-white text-sm">
-                                                                    {p.formatted_amount || `₹${Number(p.amount).toFixed(2)}`}
-                                                                </span>
-                                                                <span className="text-[10px] text-zinc-400 font-mono uppercase">
-                                                                    {p.currency || 'INR'}
-                                                                </span>
+                                            {/* Sub-tab: Scan Activity */}
+                                            {historySubTab === 'scans' && (
+                                                <div className="space-y-2">
+                                                    {isLedgerLoading ? (
+                                                        <div className="py-12 text-center space-y-2">
+                                                            <Loader2 className="w-6 h-6 animate-spin text-zinc-400 mx-auto" />
+                                                            <p className="text-xs text-zinc-500">Loading scan deductions...</p>
+                                                        </div>
+                                                    ) : ledgerItems.length === 0 ? (
+                                                        <div className="bg-white rounded-3xl p-8 border border-zinc-200/70 text-center space-y-2">
+                                                            <div className="w-10 h-10 rounded-2xl bg-zinc-100 text-zinc-400 flex items-center justify-center mx-auto">
+                                                                <CreditCard className="w-5 h-5" />
                                                             </div>
-                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold capitalize border ${statusClass}`}>
-                                                                {p.status}
-                                                            </span>
+                                                            <h5 className="text-xs font-bold text-zinc-900">No Scan Deductions Yet</h5>
+                                                            <p className="text-[11px] text-zinc-400 max-w-xs mx-auto">
+                                                                Every business card you scan and save consumes 1 scan credit. Your deductions will show here in real time.
+                                                            </p>
                                                         </div>
+                                                    ) : (
+                                                        <div className="space-y-2">
+                                                            {ledgerItems.map((item) => (
+                                                                <div
+                                                                    key={item.id}
+                                                                    className="p-3 rounded-2xl bg-white border border-zinc-200/70 shadow-sm flex items-center justify-between text-xs"
+                                                                >
+                                                                    <div className="flex items-center gap-2.5">
+                                                                        <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                                                                            <CheckCircle2 className="w-4 h-4" />
+                                                                        </div>
+                                                                        <div>
+                                                                            <span className="font-bold text-zinc-900 block leading-snug">
+                                                                                {item.reason || 'Card Scanned & Saved'}
+                                                                            </span>
+                                                                            <span className="text-[10px] text-zinc-400">
+                                                                                {item.confirmed_at
+                                                                                    ? new Date(item.confirmed_at).toLocaleString('en-IN', {
+                                                                                          day: 'numeric',
+                                                                                          month: 'short',
+                                                                                          hour: '2-digit',
+                                                                                          minute: '2-digit',
+                                                                                      })
+                                                                                    : 'Just now'} • By {item.user_name}
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                    <span className="font-mono font-bold text-zinc-950 px-2 py-1 rounded-lg bg-zinc-50 border border-zinc-200/60">
+                                                                        -{item.quantity} credit
+                                                                    </span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
 
-                                                        <div className="flex items-center justify-between text-[11px] text-zinc-500">
-                                                            <span>Gateway: {p.gateway} · {formatDate(p.paid_at || p.created_at)}</span>
-                                                            <span className="font-mono text-[10px] text-zinc-400 truncate max-w-[140px]">
-                                                                Ref: {p.gateway_payment_id || p.gateway_order_id || `#TXN-${p.id}`}
-                                                            </span>
+                                            {/* Sub-tab: Payment Receipts */}
+                                            {historySubTab === 'payments' && (
+                                                <div className="space-y-2">
+                                                    {isPaymentsLoading ? (
+                                                        <div className="py-12 text-center space-y-2">
+                                                            <Loader2 className="w-6 h-6 animate-spin text-zinc-400 mx-auto" />
+                                                            <p className="text-xs text-zinc-500">Loading invoices...</p>
                                                         </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
+                                                    ) : payments.length === 0 ? (
+                                                        <div className="bg-white rounded-3xl p-8 border border-zinc-200/70 text-center space-y-2">
+                                                            <div className="w-10 h-10 rounded-2xl bg-zinc-100 text-zinc-400 flex items-center justify-center mx-auto">
+                                                                <Receipt className="w-5 h-5" />
+                                                            </div>
+                                                            <h5 className="text-xs font-bold text-zinc-900">No Payment Records</h5>
+                                                            <p className="text-[11px] text-zinc-400 max-w-xs mx-auto">
+                                                                You are currently using the complimentary Free Plan. Paid renewals and receipts will appear here.
+                                                            </p>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="space-y-2">
+                                                            {payments.map((tx) => (
+                                                                <div
+                                                                    key={tx.id}
+                                                                    className="p-3 rounded-2xl bg-white border border-zinc-200/70 shadow-sm flex items-center justify-between text-xs"
+                                                                >
+                                                                    <div className="flex items-center gap-2.5">
+                                                                        <div className="w-8 h-8 rounded-xl bg-zinc-100 text-zinc-700 flex items-center justify-center shrink-0">
+                                                                            <Receipt className="w-4 h-4" />
+                                                                        </div>
+                                                                        <div>
+                                                                            <span className="font-bold text-zinc-900 block leading-snug">
+                                                                                {tx.plan_name || 'Workspace Subscription'}
+                                                                            </span>
+                                                                            <span className="text-[10px] text-zinc-400">
+                                                                                {tx.created_at
+                                                                                    ? new Date(tx.created_at).toLocaleDateString('en-IN', {
+                                                                                          day: 'numeric',
+                                                                                          month: 'short',
+                                                                                          year: 'numeric'
+                                                                                      })
+                                                                                    : 'Recent'} • {tx.gateway_payment_id || tx.gateway_order_id || 'Ref #'+tx.id}
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="text-right">
+                                                                        <span className="font-extrabold text-zinc-950 block">
+                                                                            {tx.formatted_amount}
+                                                                        </span>
+                                                                        <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                                                                            tx.status === 'successful'
+                                                                                ? 'bg-emerald-50 text-emerald-700'
+                                                                                : tx.status === 'pending'
+                                                                                ? 'bg-amber-50 text-amber-700'
+                                                                                : 'bg-zinc-100 text-zinc-700'
+                                                                        }`}>
+                                                                            {tx.status}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </>
                                     )}
                                 </div>
                             )}
@@ -856,29 +830,21 @@ export default function CustomerSubscriptionDashboard({
                     )}
                 </div>
 
-                {/* Footer */}
-                <div className="p-4 border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/50 flex items-center justify-between shrink-0">
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        className="px-4 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 text-xs font-bold transition-all cursor-pointer"
-                    >
-                        Close
-                    </button>
-
-                    <div className="flex items-center gap-2">
-                        <a
-                            href="https://wa.me/917600198889"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/50 text-xs font-semibold hover:bg-emerald-100 transition-colors"
-                        >
-                            <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Sales Support</span>
-                        </a>
+                {/* Bottom App Safe Area Footer */}
+                <div className="p-4 bg-white border-t border-zinc-100 flex items-center justify-between shrink-0 text-xs">
+                    <div className="flex items-center gap-1.5 text-zinc-500 text-[11px]">
+                        <Shield className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Secure Cloud Quota Sync</span>
                     </div>
+                    <button
+                        onClick={onClose}
+                        className="px-4 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 font-bold transition-all active:scale-95 text-xs"
+                    >
+                        Done
+                    </button>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }
