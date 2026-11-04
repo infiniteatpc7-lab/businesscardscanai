@@ -10,6 +10,9 @@ import {
     Calendar,
     ArrowRight
 } from 'lucide-react';
+import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
+import { Badge } from './ui/badge';
+import { Skeleton } from './ui/skeleton';
 
 export default function AdminDashboardView({
     stats,
@@ -19,15 +22,15 @@ export default function AdminDashboardView({
 }) {
     if (isLoading && !stats) {
         return (
-            <div className="space-y-6 animate-pulse select-none">
+            <div className="space-y-6 select-none">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     {[1, 2, 3, 4].map((i) => (
-                        <div key={i} className="h-32 rounded-xl bg-slate-200 dark:bg-zinc-800 border border-slate-300 dark:border-zinc-700" />
+                        <Skeleton key={i} className="h-32 rounded-xl" />
                     ))}
                 </div>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div className="h-80 rounded-xl bg-slate-200 dark:bg-zinc-800 border border-slate-300 dark:border-zinc-700" />
-                    <div className="h-80 rounded-xl bg-slate-200 dark:bg-zinc-800 border border-slate-300 dark:border-zinc-700" />
+                    <Skeleton className="h-80 rounded-xl" />
+                    <Skeleton className="h-80 rounded-xl" />
                 </div>
             </div>
         );
@@ -85,10 +88,10 @@ export default function AdminDashboardView({
                 {statCards.map((card, idx) => {
                     const Icon = card.icon;
                     return (
-                        <div
+                        <Card
                             key={idx}
                             onClick={() => onNavigateTab?.(card.tab)}
-                            className="bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800 rounded-xl p-5 shadow-xs hover:border-orange-500/40 dark:hover:border-orange-500/40 hover:shadow-sm transition-all cursor-pointer flex flex-col justify-between"
+                            className="p-5 hover:border-orange-500/40 dark:hover:border-orange-500/40 hover:shadow-sm transition-all cursor-pointer flex flex-col justify-between"
                         >
                             {/* CardHeader */}
                             <div className="flex items-center gap-3">
@@ -113,22 +116,22 @@ export default function AdminDashboardView({
                                     <span className="truncate">{card.subText}</span>
                                 </p>
                             </div>
-                        </div>
+                        </Card>
                     );
                 })}
             </div>
 
             {/* Platform Insights Bar (matching admincn widget-product-insights.tsx) */}
-            <div className="bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800 rounded-xl p-5 shadow-xs">
+            <Card className="p-5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-zinc-800">
                     <div>
                         <h3 className="text-sm font-bold text-slate-900 dark:text-white">Card Processing Telemetry</h3>
                         <p className="text-xs text-slate-500 dark:text-zinc-400">Total volume and workspace utilization metrics</p>
                     </div>
                     <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
+                        <Badge variant="orange">
                             Real-time DB Sync
-                        </span>
+                        </Badge>
                     </div>
                 </div>
 
@@ -155,12 +158,12 @@ export default function AdminDashboardView({
                         </div>
                     </div>
                 </div>
-            </div>
+            </Card>
 
             {/* Two-Column Cards: Recent Customers & Recent Audit Trail */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* 1. Recent Registered Customers */}
-                <div className="bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800 rounded-xl shadow-xs overflow-hidden flex flex-col">
+                <Card className="overflow-hidden flex flex-col">
                     <div className="px-5 py-4 border-b border-slate-100 dark:border-zinc-800 flex items-center justify-between">
                         <div>
                             <h3 className="text-sm font-bold text-slate-900 dark:text-white">Recent Customer Signups</h3>
@@ -206,13 +209,9 @@ export default function AdminDashboardView({
                                             </div>
 
                                             <div className="flex items-center gap-2 shrink-0">
-                                                <span className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider border ${
-                                                    isSuspended
-                                                        ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/50'
-                                                        : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50'
-                                                }`}>
+                                                <Badge variant={isSuspended ? 'destructive' : 'success'} size="sm">
                                                     {isSuspended ? 'Suspended' : 'Active'}
-                                                </span>
+                                                </Badge>
                                                 <span className="text-[11px] text-slate-400 dark:text-zinc-500 font-mono">
                                                     {c.created_at ? new Date(c.created_at).toLocaleDateString() : ''}
                                                 </span>
@@ -223,10 +222,10 @@ export default function AdminDashboardView({
                             </div>
                         )}
                     </div>
-                </div>
+                </Card>
 
                 {/* 2. Platform Audit Trail Feed */}
-                <div className="bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800 rounded-xl shadow-xs overflow-hidden flex flex-col">
+                <Card className="overflow-hidden flex flex-col">
                     <div className="px-5 py-4 border-b border-slate-100 dark:border-zinc-800 flex items-center justify-between">
                         <div>
                             <h3 className="text-sm font-bold text-slate-900 dark:text-white">Platform Audit Log</h3>
@@ -261,9 +260,9 @@ export default function AdminDashboardView({
                                                         {log.action}
                                                     </span>
                                                     {log.target_type && (
-                                                        <span className="text-[10px] font-mono px-1.5 py-0.2 bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 rounded border border-slate-200 dark:border-zinc-700">
+                                                        <Badge variant="outline" size="sm" className="font-mono">
                                                             {log.target_type} #{log.target_id}
-                                                        </span>
+                                                        </Badge>
                                                     )}
                                                 </div>
                                                 <p className="text-[11px] text-slate-500 dark:text-zinc-400 truncate">
@@ -281,7 +280,7 @@ export default function AdminDashboardView({
                             </div>
                         )}
                     </div>
-                </div>
+                </Card>
             </div>
         </div>
     );

@@ -1,6 +1,9 @@
 import React from 'react';
 import { PanelLeft, RefreshCw, ChevronRight } from 'lucide-react';
 import ModeToggle from './ModeToggle';
+import { Badge } from './ui/badge';
+import { IconButton } from './ui/button';
+import { Separator } from './ui/separator';
 
 export default function AdminHeader({
     currentTab,
@@ -23,20 +26,20 @@ export default function AdminHeader({
     const currentMeta = titles[currentTab] || { section: 'Platform', label: 'Console', subtitle: '' };
 
     return (
-        <header className="h-16 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md border-b border-slate-200/80 dark:border-zinc-800/80 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 select-none transition-colors">
+        <header className="h-16 bg-white dark:bg-zinc-950 border-b border-slate-200/80 dark:border-zinc-800/80 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 select-none transition-colors">
             {/* Left: Sidebar Trigger + Vertical Divider + Breadcrumbs matching admincn */}
             <div className="flex items-center gap-3 min-w-0">
-                <button
-                    type="button"
+                <IconButton
+                    variant="ghost"
                     onClick={onToggleSidebar}
                     title="Toggle Sidebar"
-                    className="p-2 rounded-lg text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
+                    className="text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white"
                 >
                     <PanelLeft className="w-5 h-5" />
                     <span className="sr-only">Toggle Sidebar</span>
-                </button>
+                </IconButton>
 
-                <div className="hidden sm:block h-4 w-px bg-slate-200 dark:bg-zinc-800" />
+                <Separator orientation="vertical" className="hidden sm:block h-4" />
 
                 {/* Breadcrumbs matching admincn */}
                 <nav className="flex items-center gap-2 text-xs">
@@ -49,21 +52,20 @@ export default function AdminHeader({
             {/* Right: Status Pill + Refresh + Theme Toggle + User Avatar */}
             <div className="flex items-center gap-2 sm:gap-3">
                 {/* Status Pill */}
-                <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/70 dark:border-emerald-800/50 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium">
+                <Badge variant="success" className="hidden md:inline-flex items-center gap-1.5 font-medium">
                     <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
                     <span>System Active</span>
-                </div>
+                </Badge>
 
                 {/* Refresh Button */}
-                <button
-                    type="button"
+                <IconButton
+                    variant="outline"
                     onClick={onRefresh}
                     disabled={isRefreshing}
                     title="Refresh data"
-                    className="size-9 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 flex items-center justify-center transition-colors cursor-pointer"
                 >
                     <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-orange-500' : ''}`} />
-                </button>
+                </IconButton>
 
                 {/* Dark/Light Mode Toggle matching admincn */}
                 <ModeToggle isDark={isDark} onToggle={onToggleTheme} />
