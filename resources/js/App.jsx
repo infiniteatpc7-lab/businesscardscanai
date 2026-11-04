@@ -181,11 +181,12 @@ function MobileAppContent() {
         // Global listener for 403 feature gate & quota limits
         const handleUpgradeRequired = (e) => {
             const detail = e.detail || {};
+            const key = detail.feature || detail.limit || (detail.error_code === 'QUOTA_EXCEEDED' ? 'quota_exceeded' : null);
             setUpgradeModal({
                 isOpen: true,
                 reason: detail.error_code === 'QUOTA_EXCEEDED' ? 'quota_exceeded' : 'feature_locked',
-                featureKey: detail.feature || null,
-                featureName: null,
+                featureKey: key,
+                featureName: detail.feature_name || detail.featureName || null,
                 message: detail.message || null,
             });
         };

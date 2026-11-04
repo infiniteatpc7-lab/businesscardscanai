@@ -62,7 +62,10 @@ export default function WorkspaceModal({
                 onWorkspaceChanged?.(res.workspace);
                 onClose();
             } else {
-                showToast(res.message || 'Failed to create workspace', 'error');
+                const isPlanError = ['PLAN_LIMIT_EXCEEDED', 'FEATURE_NOT_INCLUDED', 'QUOTA_EXCEEDED'].includes(res?.error_code);
+                if (!isPlanError) {
+                    showToast(res.message || 'Failed to create workspace', 'error');
+                }
             }
         } catch (err) {
             console.error('Create workspace error:', err);

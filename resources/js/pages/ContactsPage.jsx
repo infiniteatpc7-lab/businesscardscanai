@@ -81,7 +81,8 @@ export default function ContactsPage({
         try {
             const res = await exportCards('csv');
             if (res.forbidden) {
-                showToast(res.message, 'error');
+                // authFetch already dispatched plan:upgrade_required modal
+                return;
             } else if (res.success) {
                 showToast('CSV Exported successfully!');
             } else {

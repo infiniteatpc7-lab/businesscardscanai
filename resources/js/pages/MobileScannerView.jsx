@@ -216,9 +216,12 @@ export default function MobileScannerView({
                 showToast('Card extracted successfully!', 'success');
                 if (onQuotaRefresh) onQuotaRefresh();
             } else {
+                const isPlanError = ['QUOTA_EXCEEDED', 'FEATURE_NOT_INCLUDED', 'PLAN_LIMIT_EXCEEDED'].includes(result?.error_code);
                 const errMsg = result.message || 'Scan failed to extract card text. Check lighting & angle.';
                 setScanError(errMsg);
-                showToast(errMsg, 'error');
+                if (!isPlanError) {
+                    showToast(errMsg, 'error');
+                }
                 if (onQuotaRefresh) onQuotaRefresh();
             }
         } catch (error) {

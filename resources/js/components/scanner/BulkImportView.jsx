@@ -204,7 +204,10 @@ export default function BulkImportView({
             });
 
             if (!initRes.success || !initRes.batch) {
-                showToast(initRes.message || 'Failed to initialize bulk import', 'error');
+                const isPlanError = ['FEATURE_NOT_INCLUDED', 'PLAN_LIMIT_EXCEEDED', 'QUOTA_EXCEEDED'].includes(initRes?.error_code);
+                if (!isPlanError) {
+                    showToast(initRes.message || 'Failed to initialize bulk import', 'error');
+                }
                 setPhase('pick');
                 return;
             }
@@ -216,9 +219,10 @@ export default function BulkImportView({
             const concurrency = 4;
             let currentIndex = 0;
             let uploadedCount = 0;
+            let hasPlanError = false;
 
             const uploadWorker = async () => {
-                while (currentIndex < selectedPhotos.length) {
+                while (currentIndex < selectedPhotos.length && !hasPlanError) {
                     const idx = currentIndex++;
                     const photo = selectedPhotos[idx];
 
@@ -228,6 +232,11 @@ export default function BulkImportView({
                             sequenceOrder: idx + 1,
                             file: photo.file
                         });
+
+                        if (itemRes && ['FEATURE_NOT_INCLUDED', 'PLAN_LIMIT_EXCEEDED', 'QUOTA_EXCEEDED'].includes(itemRes.error_code)) {
+                            hasPlanError = true;
+                            break;
+                        }
 
                         if (itemRes.success && itemRes.item && photo.backFile) {
                             await uploadBulkItemBackImage(batch.batch_uuid, itemRes.item.id, {
@@ -245,6 +254,11 @@ export default function BulkImportView({
 
             const workers = Array.from({ length: Math.min(concurrency, selectedPhotos.length) }, () => uploadWorker());
             await Promise.all(workers);
+
+            if (hasPlanError) {
+                setPhase('pick');
+                return;
+            }
 
             // Step 3: Trigger background AI extraction
             setPhase('processing');

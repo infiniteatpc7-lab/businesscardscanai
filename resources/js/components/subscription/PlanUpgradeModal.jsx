@@ -14,7 +14,8 @@ import {
     ChevronLeft,
     ChevronRight,
     Building2,
-    Users
+    Users,
+    Calendar
 } from 'lucide-react';
 
 const UPGRADE_PLANS = [
@@ -98,6 +99,24 @@ export default function PlanUpgradeModal({
             description: 'Capture the reverse side of business cards to preserve handwritten booth notes and price lists.',
             reasonText: 'to unlock reverse-card capture'
         },
+        max_team_members: {
+            title: 'Team Member Limit Reached',
+            icon: Users,
+            description: 'You have reached the maximum team members allowed on your current plan. Upgrade to invite your booth reps and staff.',
+            reasonText: 'to invite more team members'
+        },
+        max_active_exhibitions: {
+            title: 'Active Exhibition Limit Reached',
+            icon: Calendar,
+            description: 'You have reached the active exhibition limit for this workspace. Upgrade to manage multiple trade shows and expos simultaneously.',
+            reasonText: 'to create more active exhibitions'
+        },
+        max_workspaces: {
+            title: 'Workspace Limit Reached',
+            icon: Building2,
+            description: 'You have reached the maximum workspaces allowed for your account. Upgrade to create additional workspaces for different brands or ventures.',
+            reasonText: 'to create more workspaces'
+        },
         quota_exceeded: {
             title: 'Monthly Scan Limit Reached (5/5)',
             icon: Zap,
@@ -112,18 +131,24 @@ export default function PlanUpgradeModal({
         }
     };
 
-    const resolvedMeta = (reason === 'quota_exceeded')
+    const baseMeta = (reason === 'quota_exceeded')
         ? featureMetadata.quota_exceeded
         : (featureKey && featureMetadata[featureKey])
         ? featureMetadata[featureKey]
         : (reason === 'on_load')
         ? featureMetadata.on_load
         : {
-            title: featureName ? `Unlock ${featureName}` : 'Premium Feature',
+            title: featureName ? (featureName.includes('Limit') || featureName.includes('Reached') ? featureName : `Unlock ${featureName}`) : 'Plan Upgrade Required',
             icon: Lock,
-            description: message || 'This feature is available on Pro and Business subscription plans.',
+            description: 'This feature is available on Pro and Business subscription plans.',
             reasonText: `to unlock ${featureName || 'premium features'}`
         };
+
+    const resolvedMeta = {
+        ...baseMeta,
+        title: featureName ? (featureName.includes('Limit') || featureName.includes('Reached') ? featureName : `Unlock ${featureName}`) : baseMeta.title,
+        description: message || baseMeta.description,
+    };
 
     const Icon = resolvedMeta.icon;
     const selectedPlan = UPGRADE_PLANS[activePlanIndex] || UPGRADE_PLANS[0];
@@ -155,7 +180,7 @@ export default function PlanUpgradeModal({
     };
 
     return createPortal(
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
             {/* Backdrop Dismiss */}
             <div className="fixed inset-0 -z-10" onClick={onClose} />
 

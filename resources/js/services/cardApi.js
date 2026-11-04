@@ -51,13 +51,14 @@ export async function authFetch(url, options = {}) {
 
     if (response.status === 403) {
         try {
-            response.clone().json().then((data) => {
-                if (data?.error_code === 'FEATURE_NOT_INCLUDED' || data?.error_code === 'QUOTA_EXCEEDED') {
-                    window.dispatchEvent(new CustomEvent('plan:upgrade_required', { detail: data }));
-                }
-            }).catch(() => {});
+            const cloned = response.clone();
+            const data = await cloned.json();
+            const planErrorCodes = ['FEATURE_NOT_INCLUDED', 'PLAN_LIMIT_EXCEEDED', 'QUOTA_EXCEEDED'];
+            if (planErrorCodes.includes(data?.error_code)) {
+                window.dispatchEvent(new CustomEvent('plan:upgrade_required', { detail: data }));
+            }
         } catch {
-            // Ignore cloning errors on non-json stream
+            // Ignore cloning or JSON parsing errors on non-json stream
         }
     }
 

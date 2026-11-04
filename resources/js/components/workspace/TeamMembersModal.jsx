@@ -90,7 +90,10 @@ export default function TeamMembersModal({
                 }
                 loadData();
             } else {
-                showToast(res.message || 'Failed to send invitation', 'error');
+                const isPlanError = ['PLAN_LIMIT_EXCEEDED', 'FEATURE_NOT_INCLUDED', 'QUOTA_EXCEEDED'].includes(res?.error_code);
+                if (!isPlanError) {
+                    showToast(res.message || 'Failed to send invitation', 'error');
+                }
             }
         } catch (err) {
             console.error('Invite error:', err);

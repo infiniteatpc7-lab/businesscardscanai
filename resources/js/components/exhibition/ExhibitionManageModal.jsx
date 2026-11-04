@@ -166,7 +166,10 @@ export default function ExhibitionManageModal({
                     loadExhibitions();
                     onExhibitionUpdated?.();
                 } else {
-                    showToast(res.message || 'Failed to create exhibition', 'error');
+                    const isPlanError = ['PLAN_LIMIT_EXCEEDED', 'FEATURE_NOT_INCLUDED', 'QUOTA_EXCEEDED'].includes(res?.error_code);
+                    if (!isPlanError) {
+                        showToast(res.message || 'Failed to create exhibition', 'error');
+                    }
                 }
             }
         } catch (err) {
