@@ -83,8 +83,13 @@ Route::middleware('api.auth')->group(function () {
     Route::post('/bulk-imports/{uuid}/commit', [BulkImportController::class, 'commit']);
     Route::post('/bulk-imports/{uuid}/cancel', [BulkImportController::class, 'cancel']);
 
-    // Workspace Subscription & Scan Quota Status (Read-only foundation)
+    // Customer Subscription, Quota & Billing Management
     Route::get('/subscription/current', [CustomerSubscriptionController::class, 'current']);
+    Route::get('/subscription/usage-ledger', [CustomerSubscriptionController::class, 'usageLedger']);
+    Route::get('/subscription/history', [CustomerSubscriptionController::class, 'history']);
+    Route::get('/subscription/payments', [CustomerSubscriptionController::class, 'payments']);
+    Route::get('/subscription/plans', [CustomerSubscriptionController::class, 'plans']);
+    Route::post('/subscription/request-upgrade', [CustomerSubscriptionController::class, 'requestUpgrade']);
 });
 
 // ==========================================

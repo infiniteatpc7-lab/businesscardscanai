@@ -538,3 +538,46 @@ export async function exportCards(format = 'csv') {
     window.URL.revokeObjectURL(url);
     return { success: true };
 }
+
+/**
+ * Customer Subscription, Quota & Billing APIs
+ */
+
+export async function fetchCustomerSubscription() {
+    const response = await authFetch('/api/subscription/current');
+    return response.json();
+}
+
+export async function fetchCustomerUsageLedger(page = 1, perPage = 15) {
+    const response = await authFetch(`/api/subscription/usage-ledger?page=${page}&per_page=${perPage}`);
+    return response.json();
+}
+
+export async function fetchCustomerSubscriptionHistory() {
+    const response = await authFetch('/api/subscription/history');
+    return response.json();
+}
+
+export async function fetchCustomerPaymentHistory({ status = 'all', page = 1, perPage = 10 } = {}) {
+    const params = new URLSearchParams();
+    if (status && status !== 'all') params.append('status', status);
+    if (page) params.append('page', page);
+    if (perPage) params.append('per_page', perPage);
+
+    const response = await authFetch(`/api/subscription/payments?${params.toString()}`);
+    return response.json();
+}
+
+export async function fetchAvailablePlans() {
+    const response = await authFetch('/api/subscription/plans');
+    return response.json();
+}
+
+export async function requestPlanUpgrade({ planId, note = '', phone = '' }) {
+    const response = await authFetch('/api/subscription/request-upgrade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan_id: planId, note, phone }),
+    });
+    return response.json();
+}

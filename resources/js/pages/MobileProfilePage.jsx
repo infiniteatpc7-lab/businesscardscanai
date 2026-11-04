@@ -20,6 +20,7 @@ import WorkspaceModal from '../components/workspace/WorkspaceModal';
 import TeamMembersModal from '../components/workspace/TeamMembersModal';
 import ExhibitionSelectorModal from '../components/exhibition/ExhibitionSelectorModal';
 import ExhibitionManageModal from '../components/exhibition/ExhibitionManageModal';
+import CustomerSubscriptionDashboard from '../components/subscription/CustomerSubscriptionDashboard';
 
 export default function MobileProfilePage({
     cardsCount = 0,
@@ -36,6 +37,7 @@ export default function MobileProfilePage({
     const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
     const [isExhibitionSelectorOpen, setIsExhibitionSelectorOpen] = useState(false);
     const [isExhibitionManageOpen, setIsExhibitionManageOpen] = useState(false);
+    const [isSubscriptionDashboardOpen, setIsSubscriptionDashboardOpen] = useState(false);
 
     const displayName = user?.name || 'Saunak K.';
     const displayEmail = user?.email || 'booth@ceramix.com';
@@ -174,10 +176,10 @@ export default function MobileProfilePage({
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                         <CreditCard className="w-4 h-4 text-zinc-800" />
-                        <h4 className="text-xs font-bold text-zinc-950">Workspace Storage</h4>
+                        <h4 className="text-xs font-bold text-zinc-950">Subscription & Scan Quota</h4>
                     </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-700">
-                        Active
+                    <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        {workspace?.plan_name || 'Active Plan'}
                     </span>
                 </div>
 
@@ -193,10 +195,18 @@ export default function MobileProfilePage({
                         ></div>
                     </div>
                     <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-1">
-                        <span>Directory Storage: Active</span>
-                        <span className="text-emerald-600 font-semibold">Ready for Booth Scans</span>
+                        <span>1 Card = 1 Scan Credit</span>
+                        <span className="text-emerald-600 font-semibold">Active Workspace</span>
                     </div>
                 </div>
+
+                <button
+                    onClick={() => setIsSubscriptionDashboardOpen(true)}
+                    className="w-full py-2.5 px-3 rounded-xl bg-zinc-900 hover:bg-black text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                >
+                    <CreditCard className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Manage Subscription & Usage</span>
+                </button>
             </div>
 
             {/* Business Preferences Bento Tile */}
@@ -295,6 +305,16 @@ export default function MobileProfilePage({
                 currentWorkspace={workspace}
                 userRole={workspace?.role || 'owner'}
                 onExhibitionUpdated={onExhibitionChanged}
+            />
+
+            {/* Customer Subscription & Usage Dashboard */}
+            <CustomerSubscriptionDashboard
+                isOpen={isSubscriptionDashboardOpen}
+                onClose={() => setIsSubscriptionDashboardOpen(false)}
+                currentWorkspace={workspace}
+                userRole={workspace?.role || 'owner'}
+                onSwitchWorkspace={onWorkspaceChanged}
+                workspaces={workspaces}
             />
         </div>
     );
