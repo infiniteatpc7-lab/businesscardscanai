@@ -17,9 +17,11 @@ import {
     fetchCustomers,
     fetchCustomerDetails,
     suspendCustomer,
-    activateCustomer
+    activateCustomer,
+    fetchAdminWorkspaceDetails
 } from '../../services/platformAdminApi';
 import CustomerDetailDrawer from './CustomerDetailDrawer';
+import WorkspaceDetailDrawer from './WorkspaceDetailDrawer';
 
 export default function AdminCustomersView({ initialSelectedCustomerId, onClearSelectedCustomer }) {
     const [customers, setCustomers] = useState([]);
@@ -31,6 +33,23 @@ export default function AdminCustomersView({ initialSelectedCustomerId, onClearS
     // Detail drawer state
     const [selectedCustomer, setSelectedCustomer] = useState(null);
     const [isDetailLoading, setIsDetailLoading] = useState(false);
+
+    // Workspace plan management modal/drawer state
+    const [selectedWorkspaceForPlan, setSelectedWorkspaceForPlan] = useState(null);
+
+    const handleManageWorkspacePlan = async (workspaceId) => {
+        try {
+            const res = await fetchAdminWorkspaceDetails(workspaceId);
+            if (res.success && res.workspace) {
+                setSelectedWorkspaceForPlan(res.workspace);
+            } else {
+                showToast('Failed to load workspace details', 'error');
+            }
+        } catch (err) {
+            console.error('Failed to load workspace:', err);
+            showToast('Unable to open workspace plan manager', 'error');
+        }
+    };
 
     // Suspend confirmation modal state
     const [suspendingCustomer, setSuspendingCustomer] = useState(null);
@@ -243,17 +262,45 @@ export default function AdminCustomersView({ initialSelectedCustomerId, onClearS
                                                 </div>
                                             </td>
                                             <td className="py-3 px-4">
-                                                <div className="flex flex-wrap gap-1 max-w-xs">
+                                                <div className="flex flex-col gap-1 max-w-sm">
                                                     {c.workspaces && c.workspaces.length > 0 ? (
-                                                        c.workspaces.map((w) => (
-                                                            <span
-                                                                key={w.id}
-                                                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 border border-slate-200/60 dark:border-zinc-700"
-                                                            >
-                                                                <Building2 className="w-2.5 h-2.5 text-slate-400" />
-                                                                <span className="truncate max-w-[120px]">{w.name}</span>
-                                                            </span>
-                                                        ))
+                                                        c.workspaces.map((w) => {
+                                                            const isWsSuspended = w.workspace_status === 'suspended';
+                                                            const subStatus = w.subscription_status || 'active';
+                                                            const isSubActive = subStatus === 'active';
+                                                            const planPrice = Number(w.plan?.price ?? 0);
+                                                            const isPaid = !w.plan?.is_free && planPrice > 0;
+
+                                                            return (
+                                                                <div key={w.id} className="flex items-center gap-1.5 flex-wrap">
+                                                                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-800 dark:text-zinc-200">
+                                                                        <Building2 className="w-2.5 h-2.5 text-slate-400" />
+                                                                        <span className="truncate max-w-[110px]">{w.name}</span>
+                                                                    </span>
+
+                                                                    {/* Plan badge */}
+                                                                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
+                                                                        isPaid
+                                                                            ? 'bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-900/50'
+                                                                            : 'bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 border-slate-200/70 dark:border-zinc-700'
+                                                                    }`}>
+                                                                        {w.plan?.name || 'Free Plan'}
+                                                                        {isPaid && ` (₹${planPrice.toLocaleString('en-IN')})`}
+                                                                    </span>
+
+                                                                    {/* Subscription or workspace status indicator */}
+                                                                    {isWsSuspended ? (
+                                                                        <span className="inline-flex items-center px-1 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50">
+                                                                            Suspended
+                                                                        </span>
+                                                                    ) : !isSubActive ? (
+                                                                        <span className="inline-flex items-center px-1 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/50">
+                                                                            {subStatus}
+                                                                        </span>
+                                                                    ) : null}
+                                                                </div>
+                                                            );
+                                                        })
                                                     ) : (
                                                         <span className="text-slate-400 dark:text-zinc-500 italic text-[11px]">No workspaces</span>
                                                     )}
@@ -411,6 +458,21 @@ export default function AdminCustomersView({ initialSelectedCustomerId, onClearS
                     setSuspendReason('');
                 }}
                 onActivateClick={(c) => handleConfirmActivate(c)}
+                onManageWorkspacePlan={handleManageWorkspacePlan}
+            />
+
+            {/* Reusable Workspace Detail / Plan Change Drawer */}
+            <WorkspaceDetailDrawer
+                workspace={selectedWorkspaceForPlan}
+                isOpen={Boolean(selectedWorkspaceForPlan)}
+                onClose={() => setSelectedWorkspaceForPlan(null)}
+                onPlanChanged={() => {
+                    showToast('Workspace plan updated successfully', 'success');
+                    loadCustomers(pagination.current_page);
+                    if (selectedCustomer) {
+                        handleOpenCustomerDetails(selectedCustomer.id);
+                    }
+                }}
             />
         </div>
     );

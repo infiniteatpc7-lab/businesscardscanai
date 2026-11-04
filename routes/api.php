@@ -9,6 +9,7 @@ use App\Http\Controllers\PlatformAdmin\AdminAuditLogController;
 use App\Http\Controllers\PlatformAdmin\AdminAuthController;
 use App\Http\Controllers\PlatformAdmin\AdminCustomerController;
 use App\Http\Controllers\PlatformAdmin\AdminDashboardController;
+use App\Http\Controllers\PlatformAdmin\AdminPaymentTransactionController;
 use App\Http\Controllers\PlatformAdmin\AdminPlanController;
 use App\Http\Controllers\PlatformAdmin\AdminWorkspaceController;
 use App\Http\Controllers\WorkspaceController;
@@ -122,6 +123,9 @@ Route::prefix('platform-admin')->group(function () {
         Route::post('/plans', [AdminPlanController::class, 'store']);
         Route::put('/plans/{id}', [AdminPlanController::class, 'update']);
         Route::post('/plans/{id}/toggle-status', [AdminPlanController::class, 'toggleStatus']);
+
+        // Payment Transactions History
+        Route::get('/payment-transactions', [AdminPaymentTransactionController::class, 'index']);
 
         // Audit Logs
         Route::get('/audit-logs', [AdminAuditLogController::class, 'index']);

@@ -13,9 +13,17 @@ import {
     Mail,
     User,
     Zap,
-    Loader2
+    Loader2,
+    History,
+    ChevronDown,
+    ChevronUp,
+    ArrowRight
 } from 'lucide-react';
-import { fetchAdminPlans, changeWorkspacePlan } from '../../services/platformAdminApi';
+import {
+    fetchAdminPlans,
+    changeWorkspacePlan,
+    fetchWorkspaceSubscriptionHistory
+} from '../../services/platformAdminApi';
 
 export default function WorkspaceDetailDrawer({
     workspace,
@@ -30,10 +38,17 @@ export default function WorkspaceDetailDrawer({
     const [isChangingPlan, setIsChangingPlan] = useState(false);
     const [planChangeMsg, setPlanChangeMsg] = useState(null);
 
+    // Subscription History state
+    const [showHistory, setShowHistory] = useState(false);
+    const [historyList, setHistoryList] = useState([]);
+    const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+
     useEffect(() => {
         if (isOpen && workspace) {
             setSelectedPlanId(workspace.plan?.id ? String(workspace.plan.id) : '');
             setPlanChangeMsg(null);
+            setShowHistory(false);
+            setHistoryList([]);
             fetchAdminPlans().then((res) => {
                 if (res.success && Array.isArray(res.plans)) {
                     setAvailablePlans(res.plans);
@@ -44,6 +59,28 @@ export default function WorkspaceDetailDrawer({
             });
         }
     }, [isOpen, workspace]);
+
+    const handleToggleHistory = async () => {
+        if (showHistory) {
+            setShowHistory(false);
+            return;
+        }
+
+        setShowHistory(true);
+        if (workspace?.id) {
+            setIsHistoryLoading(true);
+            try {
+                const res = await fetchWorkspaceSubscriptionHistory(workspace.id);
+                if (res.success && Array.isArray(res.history)) {
+                    setHistoryList(res.history);
+                }
+            } catch (err) {
+                console.error('Failed to load history:', err);
+            } finally {
+                setIsHistoryLoading(false);
+            }
+        }
+    };
 
     if (!isOpen || !workspace) return null;
 
@@ -209,6 +246,79 @@ export default function WorkspaceDetailDrawer({
                                     }`}>
                                         {planChangeMsg.text}
                                     </p>
+                                )}
+                            </div>
+
+                            {/* View Subscription History Toggle */}
+                            <div className="pt-2 border-t border-slate-200/70 dark:border-zinc-800/80">
+                                <button
+                                    type="button"
+                                    onClick={handleToggleHistory}
+                                    className="w-full flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-white py-1 transition-colors cursor-pointer"
+                                >
+                                    <span className="flex items-center gap-1.5">
+                                        <History className="w-3.5 h-3.5 text-slate-400" />
+                                        Immutable Subscription History
+                                    </span>
+                                    {showHistory ? (
+                                        <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+                                    ) : (
+                                        <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                                    )}
+                                </button>
+
+                                {showHistory && (
+                                    <div className="mt-2 space-y-2">
+                                        {isHistoryLoading ? (
+                                            <div className="py-3 text-center text-xs text-slate-400 dark:text-zinc-500">
+                                                <Loader2 className="w-3.5 h-3.5 animate-spin mx-auto text-orange-500 mb-1" />
+                                                Loading subscription history...
+                                            </div>
+                                        ) : historyList.length === 0 ? (
+                                            <p className="text-[11px] text-slate-400 dark:text-zinc-500 italic text-center py-2">
+                                                No plan change history found.
+                                            </p>
+                                        ) : (
+                                            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                                                {historyList.map((h) => (
+                                                    <div
+                                                        key={h.id}
+                                                        className="p-2 rounded border border-slate-200/70 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs space-y-1"
+                                                    >
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex items-center gap-1 font-bold text-slate-900 dark:text-white text-[11px]">
+                                                                {h.previous_plan_name ? (
+                                                                    <>
+                                                                        <span className="line-through text-slate-400 dark:text-zinc-500 font-normal">
+                                                                            {h.previous_plan_name}
+                                                                        </span>
+                                                                        <ArrowRight className="w-3 h-3 text-slate-400" />
+                                                                    </>
+                                                                ) : null}
+                                                                <span>{h.plan_name || 'Free Plan'}</span>
+                                                            </div>
+                                                            <span className="text-[10px] text-slate-400 dark:text-zinc-500 font-mono">
+                                                                {new Date(h.created_at).toLocaleDateString()}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-zinc-400">
+                                                            <span>
+                                                                Source: {h.assignment_source === 'admin_assigned' ? 'Admin Assigned' : h.assignment_source === 'system_free' ? 'System Free' : 'Checkout'}
+                                                            </span>
+                                                            {h.assigned_by_admin?.name && (
+                                                                <span>by {h.assigned_by_admin.name}</span>
+                                                            )}
+                                                        </div>
+                                                        {h.reason && (
+                                                            <p className="text-[10px] italic text-slate-600 dark:text-zinc-400 bg-slate-50 dark:bg-zinc-950 p-1 rounded">
+                                                                "{h.reason}"
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                 )}
                             </div>
                         </div>

@@ -9,6 +9,7 @@ use App\Models\Exhibition;
 use App\Models\UserSelectedExhibition;
 use App\Models\Workspace;
 use App\Services\CardDuplicateDetector;
+use App\Services\CardImageService;
 use App\Services\ScanQuotaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -428,92 +429,23 @@ EOT;
 
     /**
      * Strictly validate image payload, MIME type, dimensions, and save to private storage.
+     * Delegates validation to CardImageService for unified support of JPG, PNG, WebP, HEIC, AVIF, BMP, TIFF.
      */
     private function validateAndExtractImage(Request $request, string $fileKey = 'image', string $base64Key = 'image_base64'): array
     {
-        $rawBytes = null;
-        $extension = 'jpg';
-        $maxBytes = 16 * 1024 * 1024; // 16MB limit
-
-        if ($request->hasFile($fileKey)) {
-            $request->validate([
-                $fileKey => 'required|file|max:16384',
-            ]);
-
-            $file = $request->file($fileKey);
-            if (! $file->isValid()) {
-                return ['success' => false, 'error' => 'Uploaded file is corrupted or incomplete.', 'status' => 422];
-            }
-
-            if ($file->getSize() > $maxBytes) {
-                return ['success' => false, 'error' => 'Image exceeds 16MB limit.', 'status' => 413];
-            }
-
-            $rawBytes = file_get_contents($file->getRealPath());
-            $extension = strtolower($file->getClientOriginalExtension() ?: 'jpg');
-        } elseif ($request->filled($base64Key)) {
-            $raw = $request->input($base64Key);
-
-            // Prevent oversized base64 payloads
-            if (strlen($raw) > 25 * 1024 * 1024) {
-                return ['success' => false, 'error' => 'Base64 image payload exceeds maximum allowed size.', 'status' => 413];
-            }
-
-            if (preg_match('/^data:image\/(jpeg|png|webp);base64,(.+)$/', $raw, $matches)) {
-                $extension = $matches[1] === 'jpeg' ? 'jpg' : $matches[1];
-                $rawBytes = base64_decode($matches[2], true);
-            } else {
-                $rawBytes = base64_decode($raw, true);
-            }
-        }
-
-        if (! $rawBytes || strlen($rawBytes) < 50) {
-            return ['success' => false, 'error' => 'Invalid or missing image payload.', 'status' => 422];
-        }
-
-        if (strlen($rawBytes) > $maxBytes) {
-            return ['success' => false, 'error' => 'Image size exceeds maximum limit of 16MB.', 'status' => 413];
-        }
-
-        // Validate real MIME type using PHP fileinfo inspection
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $realMime = finfo_buffer($finfo, $rawBytes);
-        finfo_close($finfo);
-
-        $allowedMimes = [
-            'image/jpeg' => 'jpg',
-            'image/png' => 'png',
-            'image/webp' => 'webp',
-        ];
-
-        if (! array_key_exists($realMime, $allowedMimes)) {
-            return [
-                'success' => false,
-                'error' => 'Invalid image format. Only JPEG, PNG, and WebP are permitted.',
-                'status' => 422,
-            ];
-        }
-
-        $extension = $allowedMimes[$realMime];
-
-        // Validate image dimensions to prevent decompression bombs
-        $imageSize = @getimagesizefromstring($rawBytes);
-        if (! $imageSize || $imageSize[0] < 10 || $imageSize[1] < 10) {
-            return ['success' => false, 'error' => 'Image dimensions are invalid or corrupted.', 'status' => 422];
-        }
-
-        if ($imageSize[0] > 9000 || $imageSize[1] > 9000) {
-            return ['success' => false, 'error' => 'Image dimensions exceed maximum limit of 9000px.', 'status' => 422];
+        $validated = app(CardImageService::class)->validateAndExtractImage($request, $fileKey, $base64Key);
+        if (! $validated['success']) {
+            return $validated;
         }
 
         // Save safely into private storage (storage/app/private/cards)
-        $relativePath = 'cards/'.Str::uuid().'.'.$extension;
-        Storage::disk('local')->put($relativePath, $rawBytes);
+        $relativePath = 'cards/'.Str::uuid().'.'.$validated['extension'];
+        Storage::disk('local')->put($relativePath, $validated['raw_bytes']);
 
         return [
             'success' => true,
-            'raw_bytes' => $rawBytes,
-            'mime_type' => $realMime,
+            'raw_bytes' => $validated['raw_bytes'],
+            'mime_type' => $validated['mime_type'],
             'storage_path' => $relativePath,
         ];
     }

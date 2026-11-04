@@ -190,4 +190,34 @@ export async function changeWorkspacePlan(workspaceId, planId, reason = '') {
     });
 }
 
+export async function fetchWorkspaceSubscriptionHistory(workspaceId) {
+    return adminFetch(`/api/platform-admin/workspaces/${workspaceId}/subscription-history`);
+}
+
+export async function fetchPaymentTransactions({
+    page = 1,
+    perPage = 15,
+    workspaceId = null,
+    customerId = null,
+    status = 'all',
+    gateway = 'all',
+    startDate = null,
+    endDate = null,
+    search = ''
+} = {}) {
+    const params = new URLSearchParams();
+    if (page) params.append('page', page);
+    if (perPage) params.append('per_page', perPage);
+    if (workspaceId) params.append('workspace_id', workspaceId);
+    if (customerId) params.append('customer_id', customerId);
+    if (status && status !== 'all') params.append('status', status);
+    if (gateway && gateway !== 'all') params.append('gateway', gateway);
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    if (search) params.append('search', search);
+
+    return adminFetch(`/api/platform-admin/payment-transactions?${params.toString()}`);
+}
+
+
 

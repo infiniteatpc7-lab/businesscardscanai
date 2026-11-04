@@ -9,6 +9,7 @@ use App\Models\CardScan;
 use App\Models\PlatformAdmin;
 use App\Models\PlatformAuditLog;
 use App\Models\User;
+use App\Services\ScanQuotaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -20,7 +21,12 @@ class AdminCustomerController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = User::query()->with([
-            'workspaces:id,name',
+            'workspaces' => function ($wq) {
+                $wq->select('workspaces.id', 'workspaces.name', 'workspaces.slug', 'workspaces.status', 'workspaces.owner_id')
+                    ->with(['subscriptions' => function ($sq) {
+                        $sq->latest('id')->with('plan');
+                    }]);
+            },
             'ownedWorkspaces:id,name',
         ]);
 
@@ -71,11 +77,36 @@ class AdminCustomerController extends Controller
                 'primary_workspace' => $u->ownedWorkspaces->first()?->name
                     ?? $u->workspaces->first()?->name
                     ?? 'None',
-                'workspaces' => $u->workspaces->map(fn ($ws) => [
-                    'id' => $ws->id,
-                    'name' => $ws->name,
-                    'role' => $ws->pivot->role ?? 'member',
-                ]),
+                'workspaces' => $u->workspaces->map(function ($ws) use ($u) {
+                    $activeSub = $ws->subscriptions->firstWhere('status', 'active') ?? $ws->subscriptions->first();
+                    $plan = $activeSub?->plan;
+                    $isFree = $plan ? ((float) $plan->price <= 0) : true;
+
+                    return [
+                        'id' => $ws->id,
+                        'name' => $ws->name,
+                        'slug' => $ws->slug,
+                        'role' => $ws->pivot->role ?? 'member',
+                        'is_owner' => (int) $ws->owner_id === (int) $u->id,
+                        'workspace_status' => $ws->status,
+                        'subscription_status' => $activeSub?->status ?? 'active',
+                        'plan' => $plan ? [
+                            'id' => $plan->id,
+                            'name' => $plan->name,
+                            'slug' => $plan->slug,
+                            'price' => (float) $plan->price,
+                            'currency' => $plan->currency ?? 'INR',
+                            'is_free' => $isFree,
+                        ] : [
+                            'id' => null,
+                            'name' => 'Free Plan',
+                            'slug' => 'free',
+                            'price' => 0.0,
+                            'currency' => 'INR',
+                            'is_free' => true,
+                        ],
+                    ];
+                }),
                 'cards_count' => $cardCounts[$u->id] ?? 0,
                 'scans_count' => $scanCounts[$u->id] ?? 0,
             ];
@@ -94,9 +125,9 @@ class AdminCustomerController extends Controller
     }
 
     /**
-     * Show detailed customer profile with workspace affiliations and activity metrics.
+     * Show detailed customer profile with workspace affiliations, subscription overview, and activity metrics.
      */
-    public function show(int $id): JsonResponse
+    public function show(int $id, ScanQuotaService $quotaService): JsonResponse
     {
         $customer = User::with([
             'workspaces' => function ($q) {
@@ -126,6 +157,58 @@ class AdminCustomerController extends Controller
                 'created_at' => $log->created_at?->toIso8601String(),
             ]);
 
+        $workspaces = $customer->workspaces->map(function ($ws) use ($customer, $quotaService) {
+            $subscription = $ws->activeSubscription();
+            $subscription->ensureCurrentPeriod();
+            $plan = $subscription->plan;
+            $quota = $quotaService->getWorkspaceQuota($ws);
+
+            return [
+                'id' => $ws->id,
+                'name' => $ws->name,
+                'slug' => $ws->slug,
+                'status' => $ws->status,
+                'role' => $ws->pivot->role ?? 'member',
+                'is_owner' => (int) $ws->owner_id === (int) $customer->id,
+                'members_count' => $ws->users_count,
+                'cards_count' => $ws->cards_count,
+                'exhibitions_count' => $ws->exhibitions_count,
+                'created_at' => $ws->created_at?->toIso8601String(),
+                'subscription' => [
+                    'id' => $subscription->id,
+                    'status' => $subscription->status,
+                    'assignment_source' => $subscription->assignment_source,
+                    'started_at' => $subscription->started_at?->toIso8601String(),
+                    'current_period_starts_at' => $subscription->current_period_starts_at?->toIso8601String(),
+                    'current_period_ends_at' => $subscription->current_period_ends_at?->toIso8601String(),
+                ],
+                'plan' => [
+                    'id' => $plan->id,
+                    'name' => $plan->name,
+                    'slug' => $plan->slug,
+                    'price' => (float) $plan->price,
+                    'formatted_price' => '₹'.number_format((float) $plan->price, 2),
+                    'currency' => $plan->currency ?? 'INR',
+                    'currency_symbol' => '₹',
+                    'monthly_scan_allowance' => (int) $plan->monthly_scan_allowance,
+                    'max_team_members' => (int) ($plan->max_team_members ?? 1),
+                    'max_workspaces' => (int) ($plan->max_workspaces ?? 1),
+                    'max_active_exhibitions' => (int) ($plan->max_active_exhibitions ?? 1),
+                    'is_unlimited_scans' => ((int) $plan->monthly_scan_allowance) === -1,
+                    'features' => $plan->features ?? [],
+                ],
+                'quota' => [
+                    'monthly_allowance' => $quota['monthly_allowance'],
+                    'used_credits' => $quota['used_credits'],
+                    'remaining_credits' => $quota['remaining_credits'],
+                    'reserved_credits' => $quota['reserved_credits'],
+                    'is_unlimited' => $quota['is_unlimited'],
+                    'period_starts_at' => $quota['period_starts_at'],
+                    'period_ends_at' => $quota['period_ends_at'],
+                ],
+            ];
+        });
+
         return response()->json([
             'success' => true,
             'customer' => [
@@ -145,18 +228,7 @@ class AdminCustomerController extends Controller
                     'scans_count' => $totalScans,
                     'bulk_batches_count' => $totalBulkBatches,
                 ],
-                'workspaces' => $customer->workspaces->map(fn ($ws) => [
-                    'id' => $ws->id,
-                    'name' => $ws->name,
-                    'slug' => $ws->slug,
-                    'status' => $ws->status,
-                    'role' => $ws->pivot->role ?? 'member',
-                    'is_owner' => $ws->owner_id === $customer->id,
-                    'members_count' => $ws->users_count,
-                    'cards_count' => $ws->cards_count,
-                    'exhibitions_count' => $ws->exhibitions_count,
-                    'created_at' => $ws->created_at?->toIso8601String(),
-                ]),
+                'workspaces' => $workspaces,
                 'audit_history' => $auditHistory,
             ],
         ]);

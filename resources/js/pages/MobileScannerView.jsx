@@ -376,7 +376,7 @@ export default function MobileScannerView({
                             {isUploadingBack ? 'Attaching...' : (cardData.back_image_path || backImagePreview ? 'Change' : '+ Add Back')}
                             <input
                                 type="file"
-                                accept="image/*"
+                                accept="image/*,.heic,.heif,.jpg,.jpeg,.png,.webp,.avif,.bmp,.tiff"
                                 capture="environment"
                                 onChange={handleBackImageSelected}
                                 disabled={isUploadingBack}

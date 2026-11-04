@@ -603,7 +603,7 @@ export default function BulkImportView({
                                 ref={fileInputRef}
                                 type="file"
                                 multiple
-                                accept="image/*"
+                                accept="image/*,.heic,.heif,.jpg,.jpeg,.png,.webp,.avif,.bmp,.tiff"
                                 className="hidden"
                                 onChange={handlePhotosSelected}
                             />
@@ -667,7 +667,7 @@ export default function BulkImportView({
                                             >
                                                 <input
                                                     type="file"
-                                                    accept="image/*"
+                                                    accept="image/*,.heic,.heif,.jpg,.jpeg,.png,.webp,.avif,.bmp,.tiff"
                                                     className="hidden"
                                                     onChange={(e) => handleAttachBackPhoto(photo.clientItemId, e)}
                                                 />

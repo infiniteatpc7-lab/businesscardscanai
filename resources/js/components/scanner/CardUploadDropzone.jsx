@@ -14,6 +14,12 @@ export default function CardUploadDropzone({
     const fileInputRef = useRef(null);
     const cameraInputRef = useRef(null);
 
+    const [previewFailed, setPreviewFailed] = React.useState(false);
+
+    React.useEffect(() => {
+        setPreviewFailed(false);
+    }, [imagePreview]);
+
     const handleDownload = (e) => {
         if (!imagePreview || isScanning) return;
         const link = document.createElement('a');
@@ -60,20 +66,35 @@ export default function CardUploadDropzone({
                     </div>
                     <h4 className="text-sm font-bold text-zinc-900 mb-1">Upload Card Image</h4>
                     <p className="text-xs text-zinc-500 max-w-xs mx-auto">
-                        Drag & drop or tap to browse JPG, PNG, WebP up to 16MB
+                        Drag & drop or tap to browse JPG, PNG, WebP, HEIC, AVIF, BMP up to 16MB
                     </p>
                 </div>
             ) : (
                 <div
                     onClick={handleDownload}
-                    className="relative rounded-2xl overflow-hidden border border-zinc-200 bg-zinc-900 shadow-inner cursor-pointer select-none active:scale-[0.99] transition-transform"
+                    className="relative rounded-2xl overflow-hidden border border-zinc-200 bg-zinc-900 shadow-inner cursor-pointer select-none active:scale-[0.99] transition-transform min-h-[180px] flex items-center justify-center"
                     title="Tap to download card image"
                 >
-                    <img
-                        src={imagePreview}
-                        alt="Card Preview"
-                        className="w-full h-auto max-h-[300px] sm:max-h-[340px] object-contain mx-auto"
-                    />
+                    {!previewFailed ? (
+                        <img
+                            src={imagePreview}
+                            alt="Card Preview"
+                            onError={() => setPreviewFailed(true)}
+                            className="w-full h-auto max-h-[300px] sm:max-h-[340px] object-contain mx-auto"
+                        />
+                    ) : (
+                        <div className="py-12 px-6 text-center text-zinc-300 space-y-2">
+                            <div className="w-12 h-12 rounded-2xl bg-zinc-800 border border-zinc-700 mx-auto flex items-center justify-center text-emerald-400">
+                                <Camera className="w-6 h-6" />
+                            </div>
+                            <p className="text-xs font-bold text-white truncate max-w-xs mx-auto">
+                                {imageFileName || 'High-Efficiency Photo'}
+                            </p>
+                            <span className="inline-block text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                {imageFileName?.toLowerCase()?.endsWith('.heic') || imageFileName?.toLowerCase()?.endsWith('.heif') ? 'HEIC Image Ready' : 'Image Ready for AI Processing'}
+                            </span>
+                        </div>
+                    )}
 
                     {/* Scanning Laser Line Animation */}
                     {isScanning && (
@@ -119,14 +140,14 @@ export default function CardUploadDropzone({
             <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/*,.heic,.heif,.jpg,.jpeg,.png,.webp,.avif,.bmp,.tiff"
                 onChange={handleInput}
                 className="hidden"
             />
             <input
                 ref={cameraInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/*,.heic,.heif,.jpg,.jpeg,.png,.webp,.avif,.bmp,.tiff"
                 capture="environment"
                 onChange={handleInput}
                 className="hidden"

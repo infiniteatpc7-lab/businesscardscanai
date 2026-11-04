@@ -18,6 +18,16 @@ class CardImageService
         'image/jpeg' => 'jpg',
         'image/png' => 'png',
         'image/webp' => 'webp',
+        'image/heic' => 'heic',
+        'image/heif' => 'heif',
+        'image/heic-sequence' => 'heic',
+        'image/heif-sequence' => 'heif',
+        'image/avif' => 'avif',
+        'image/bmp' => 'bmp',
+        'image/x-ms-bmp' => 'bmp',
+        'image/tiff' => 'tiff',
+        'image/x-tiff' => 'tiff',
+        'image/gif' => 'gif',
     ];
 
     /**
@@ -48,8 +58,9 @@ class CardImageService
                 return ['success' => false, 'error' => 'Base64 image payload exceeds maximum allowed size.', 'status' => 413];
             }
 
-            if (preg_match('/^data:image\/(jpeg|png|webp);base64,(.+)$/', $raw, $matches)) {
-                $extension = $matches[1] === 'jpeg' ? 'jpg' : $matches[1];
+            if (preg_match('/^data:image\/([a-zA-Z0-9\.\+\-]+);base64,(.+)$/s', $raw, $matches)) {
+                $extCandidate = strtolower($matches[1]);
+                $extension = ($extCandidate === 'jpeg') ? 'jpg' : $extCandidate;
                 $rawBytes = base64_decode($matches[2], true);
             } else {
                 $rawBytes = base64_decode($raw, true);
@@ -64,29 +75,38 @@ class CardImageService
             return ['success' => false, 'error' => 'Image size exceeds maximum limit of 16MB.', 'status' => 413];
         }
 
-        // Validate real MIME type via PHP fileinfo buffer inspection
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $realMime = finfo_buffer($finfo, $rawBytes);
-        finfo_close($finfo);
+        // Validate real MIME type via PHP fileinfo buffer inspection with HEIC/AVIF/TIFF fallbacks
+        $realMime = $this->detectMimeType($rawBytes);
 
-        if (! array_key_exists($realMime, $this->allowedMimes)) {
+        if (! $realMime || ! array_key_exists($realMime, $this->allowedMimes)) {
             return [
                 'success' => false,
-                'error' => 'Invalid image format. Only JPEG, PNG, and WebP are permitted.',
+                'error' => 'Invalid file format. Only image formats (JPG, PNG, WebP, HEIC, AVIF, BMP, TIFF) are permitted.',
                 'status' => 422,
             ];
         }
 
         $extension = $this->allowedMimes[$realMime];
 
-        // Check dimensions to prevent decompression bombs
-        $imageSize = @getimagesizefromstring($rawBytes);
-        if (! $imageSize || $imageSize[0] < 10 || $imageSize[1] < 10) {
-            return ['success' => false, 'error' => 'Image dimensions are invalid or corrupted.', 'status' => 422];
-        }
+        // Check dimensions to prevent decompression bombs for GD-decodable formats
+        $isHeicOrTiff = in_array($realMime, [
+            'image/heic',
+            'image/heif',
+            'image/heic-sequence',
+            'image/heif-sequence',
+            'image/tiff',
+            'image/x-tiff',
+        ], true);
 
-        if ($imageSize[0] > 9000 || $imageSize[1] > 9000) {
-            return ['success' => false, 'error' => 'Image dimensions exceed maximum limit of 9000px.', 'status' => 422];
+        if (! $isHeicOrTiff) {
+            $imageSize = @getimagesizefromstring($rawBytes);
+            if (! $imageSize || $imageSize[0] < 10 || $imageSize[1] < 10) {
+                return ['success' => false, 'error' => 'Image dimensions are invalid or corrupted.', 'status' => 422];
+            }
+
+            if ($imageSize[0] > 9000 || $imageSize[1] > 9000) {
+                return ['success' => false, 'error' => 'Image dimensions exceed maximum limit of 9000px.', 'status' => 422];
+            }
         }
 
         $optimized = $this->optimizeImageBytes($rawBytes, $realMime);
@@ -97,6 +117,82 @@ class CardImageService
             'mime_type' => $optimized['mime'],
             'extension' => $extension,
         ];
+    }
+
+    /**
+     * Inspect binary buffer to determine true image MIME type, including formats
+     * like HEIC/HEIF or AVIF which may lack entries in default OS magic databases.
+     */
+    public function detectMimeType(string $rawBytes): ?string
+    {
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $realMime = finfo_buffer($finfo, $rawBytes);
+        finfo_close($finfo);
+
+        if ($realMime && array_key_exists($realMime, $this->allowedMimes)) {
+            return $realMime;
+        }
+
+        // Fallback for HEIC/HEIF
+        if ($this->isHeicBytes($rawBytes)) {
+            return 'image/heic';
+        }
+
+        // Fallback for TIFF
+        if ($this->isTiffBytes($rawBytes)) {
+            return 'image/tiff';
+        }
+
+        // Fallback for AVIF
+        if ($this->isAvifBytes($rawBytes)) {
+            return 'image/avif';
+        }
+
+        return null;
+    }
+
+    /**
+     * Determine if binary payload is a valid HEIC/HEIF image (ISOBMFF with ftyp heic/mif1 brand).
+     */
+    public function isHeicBytes(string $bytes): bool
+    {
+        if (strlen($bytes) < 12) {
+            return false;
+        }
+        if (substr($bytes, 4, 4) !== 'ftyp') {
+            return false;
+        }
+        $brand = strtolower(substr($bytes, 8, 4));
+        if (in_array($brand, ['heic', 'heix', 'heim', 'heis', 'hevc', 'hevx', 'mif1', 'msf1'], true)) {
+            return true;
+        }
+        $compat = strtolower(substr($bytes, 16, 32));
+
+        return str_contains($compat, 'heic') || str_contains($compat, 'mif1');
+    }
+
+    /**
+     * Determine if binary payload is a valid TIFF image (Little or Big-Endian signature).
+     */
+    public function isTiffBytes(string $bytes): bool
+    {
+        if (strlen($bytes) < 4) {
+            return false;
+        }
+
+        return substr($bytes, 0, 4) === "II*\x00" || substr($bytes, 0, 4) === "MM\x00*";
+    }
+
+    /**
+     * Determine if binary payload is a valid AVIF image.
+     */
+    public function isAvifBytes(string $bytes): bool
+    {
+        if (strlen($bytes) < 12) {
+            return false;
+        }
+
+        return substr($bytes, 4, 4) === 'ftyp' && in_array(strtolower(substr($bytes, 8, 4)), ['avif', 'avis'], true);
     }
 
     /**
