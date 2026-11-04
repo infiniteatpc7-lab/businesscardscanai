@@ -345,8 +345,8 @@ class CustomerSubscriptionController extends Controller
             ],
             'support' => [
                 'email' => 'support@businesscardscan.ai',
-                'phone' => '+91 76001 98889',
-                'whatsapp' => 'https://wa.me/917600198889?text='.urlencode("Hello, I would like to upgrade my workspace '{$workspace->name}' to the '{$targetPlan->name}' plan."),
+                'phone' => '+91 97275 09762',
+                'whatsapp' => 'https://wa.me/919727509762?text='.urlencode("Hello, I would like to upgrade my workspace '{$workspace->name}' to the '{$targetPlan->name}' plan."),
             ],
         ]);
     }

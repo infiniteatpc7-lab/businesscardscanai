@@ -349,7 +349,9 @@ class CustomerSubscriptionDashboardTest extends TestCase
             ->assertJsonPath('target_plan.name', 'Mega Expo Plan');
 
         $this->assertStringContainsString('wa.me', $response->json('support.whatsapp'));
+        $this->assertStringContainsString('9727509762', $response->json('support.whatsapp'));
         $this->assertStringContainsString('Mega+Expo+Plan', $response->json('support.whatsapp'));
+        $this->assertEquals('+91 97275 09762', $response->json('support.phone'));
     }
 
     public function test_multi_workspace_customer_receives_separate_workspace_summaries(): void

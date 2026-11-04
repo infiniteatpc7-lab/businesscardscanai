@@ -198,7 +198,7 @@ export default function CustomerSubscriptionDashboard({
 
     const whatsappDirectLink = (planName) => {
         const text = `Hello! I would like to upgrade my workspace "${currentWorkspace?.name || 'My Workspace'}" to the ${planName || 'Pro'} plan.`;
-        return `https://wa.me/917600198889?text=${encodeURIComponent(text)}`;
+        return `https://wa.me/919727509762?text=${encodeURIComponent(text)}`;
     };
 
     return createPortal(
@@ -642,10 +642,10 @@ export default function CustomerSubscriptionDashboard({
                                             <div className="bg-zinc-50 rounded-2xl p-4 border border-zinc-200/60 flex items-center justify-between text-xs">
                                                 <div>
                                                     <span className="font-bold text-zinc-900 block">Need custom enterprise quota?</span>
-                                                    <span className="text-[11px] text-zinc-500">Call sales team: +91 76001 98889</span>
+                                                    <span className="text-[11px] text-zinc-500">Call sales team: +91 97275 09762</span>
                                                 </div>
                                                 <a
-                                                    href="tel:+917600198889"
+                                                    href="tel:+919727509762"
                                                     className="w-8 h-8 rounded-full bg-white border border-zinc-200 flex items-center justify-center text-zinc-800 shadow-sm active:scale-95"
                                                 >
                                                     <PhoneCall className="w-3.5 h-3.5" />
