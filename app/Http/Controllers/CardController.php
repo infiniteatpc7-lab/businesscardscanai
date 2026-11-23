@@ -169,6 +169,9 @@ class CardController extends Controller
      */
     public function scan(Request $request, ScanQuotaService $quotaService): JsonResponse
     {
+        @ini_set('max_execution_time', '120');
+        @set_time_limit(120);
+
         $validatedImage = $this->validateAndExtractImage($request);
 
         if (! $validatedImage['success']) {
@@ -224,16 +227,16 @@ class CardController extends Controller
         $base64Data = base64_encode($optimized['bytes']);
         $mimeType = $optimized['mime'];
 
-        // Specialized Multimodal OCR prompt for Indian Regional typography & English
+        // Specialized Multimodal OCR prompt for all languages & English transliteration
         $prompt = <<<'EOT'
 You are an expert Multimodal OCR and Business Card Information Extraction engine.
-Carefully analyze this business/visiting card image. It may contain text in Gujarati, Hindi, Marathi, Sanskrit, or English.
+Carefully analyze this business/visiting card image. It may contain text in any language or script worldwide (including English, Gujarati, Hindi, Marathi, Tamil, Telugu, Bengali, Punjabi, Urdu, Arabic, Chinese, Japanese, German, French, Spanish, etc.).
 
-CRITICAL INSTRUCTIONS FOR REGIONAL & STYLIZED TYPOGRAPHY:
-1. Pay extreme attention to stylized, decorative, bold, 3D, curved, or logo fonts (for example stylized Gujarati script like "મોરબી ડેપો"). Do not confuse or misread complex Gujarati vowels, matras, conjuncts, and loop shapes.
-2. If text is in an Indian script (Gujarati, Hindi, etc.), provide BOTH the original native script AND the Roman English transliteration/translation.
-3. Extract phone numbers accurately (keep 10-digit mobile or STD landline numbers).
-4. Extract address completely with street, landmarks, city, state, and 6-digit PIN code if present.
+CRITICAL INSTRUCTIONS FOR TYPOGRAPHY & MULTILINGUAL EXTRACTION:
+1. Accurately detect and extract all names, company names, titles, phone numbers, and addresses regardless of language or script. Pay extreme attention to stylized, decorative, bold, 3D, curved, or logo fonts.
+2. If text is in any non-Latin or regional script (e.g. Gujarati, Devanagari, Arabic, Chinese, Tamil, etc.), provide BOTH the original native script AND the Roman English transliteration/translation.
+3. Extract phone numbers accurately (keep 10-digit mobile, international codes, or landline numbers).
+4. Extract address completely with street, landmarks, city, state, and postal/PIN code if present.
 5. Accurately calculate a realistic "accuracy_score" between 0 and 100 based on card image resolution, clarity, font legibility, completeness, and your confidence.
 6. Provide an "accuracy_reason" explaining your confidence, font legibility, and which elements were found or absent.
 
@@ -253,9 +256,9 @@ Return ONLY a valid, raw JSON object (strictly adhering to this JSON schema, no 
   "tagline_services": "Core business tagline, products manufactured, or services offered",
   "tax_id": "GST number / PAN number / VAT ID if present on card or null",
   "social_profiles": ["Any WhatsApp, Instagram, Facebook, LinkedIn handles or numbers"],
-  "detected_language": "Gujarati | Hindi | Marathi | English | Multilingual",
+  "detected_language": "The primary language detected (e.g. English, Gujarati, Hindi, Tamil, German, Chinese, or Multilingual)",
   "accuracy_score": 95,
-  "accuracy_reason": "High resolution, clearly printed Gujarati typography and English contact details."
+  "accuracy_reason": "High resolution, clearly printed typography and contact details."
 }
 EOT;
 
@@ -274,6 +277,7 @@ EOT;
         $trackingService = app(AiUsageTrackingService::class);
 
         foreach ($modelsToTry as $modelName) {
+            @set_time_limit(120);
             $attemptNumber++;
             $isFallback = ($attemptNumber > 1);
             $fallbackReason = $isFallback ? "Fallback from {$previousModel}: {$previousError}" : null;
@@ -601,11 +605,11 @@ EOT;
     }
 
     /**
-     * Downscale high-resolution phone camera images to optimum OCR size (max 1800px).
+     * Downscale high-resolution phone camera images to optimum OCR size (max 1280px).
      */
     private function optimizeImageBytes(string $bytes, string $mime): array
     {
-        if (! extension_loaded('gd') || strlen($bytes) < 1024 * 1024) {
+        if (! extension_loaded('gd')) {
             return ['bytes' => $bytes, 'mime' => $mime];
         }
 
@@ -616,34 +620,34 @@ EOT;
 
         $origW = imagesx($srcImg);
         $origH = imagesy($srcImg);
-        $maxDim = 1800;
+        $maxDim = 1280;
 
-        if ($origW <= $maxDim && $origH <= $maxDim) {
+        if ($origW <= $maxDim && $origH <= $maxDim && strlen($bytes) <= 500 * 1024) {
             imagedestroy($srcImg);
 
             return ['bytes' => $bytes, 'mime' => $mime];
         }
 
         if ($origW > $origH) {
-            $newW = $maxDim;
-            $newH = (int) round(($origH / $origW) * $maxDim);
+            $newW = min($origW, $maxDim);
+            $newH = (int) round(($origH / $origW) * $newW);
         } else {
-            $newH = $maxDim;
-            $newW = (int) round(($origW / $origH) * $maxDim);
+            $newH = min($origH, $maxDim);
+            $newW = (int) round(($origW / $origH) * $newH);
         }
 
         $dstImg = imagecreatetruecolor($newW, $newH);
         imagecopyresampled($dstImg, $srcImg, 0, 0, 0, 0, $newW, $newH, $origW, $origH);
 
         ob_start();
-        imagejpeg($dstImg, null, 88);
+        imagejpeg($dstImg, null, 85);
         $compressedBytes = ob_get_clean();
 
         imagedestroy($srcImg);
         imagedestroy($dstImg);
 
         return [
-            'bytes' => $compressedBytes ?: $bytes,
+            'bytes' => ($compressedBytes !== false && strlen($compressedBytes) > 0) ? $compressedBytes : $bytes,
             'mime' => 'image/jpeg',
         ];
     }

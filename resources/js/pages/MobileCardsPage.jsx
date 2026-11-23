@@ -7,7 +7,6 @@ import {
     User,
     Trash2,
     FileSpreadsheet,
-    MessageCircle,
     UserPlus,
     X,
     Mail,
@@ -25,6 +24,7 @@ import {
 import SwipeableCardItem from '../components/cards/SwipeableCardItem';
 import ShareCardModal from '../components/cards/ShareCardModal';
 import CardFormEditor from '../components/scanner/CardFormEditor';
+import WhatsAppIcon from '../components/common/WhatsAppIcon';
 import { downloadVCard, openWhatsApp, isLandlineNumber, initiatePhoneCall } from '../services/vcfHelper';
 import { deleteCard, saveCard, updateCard, getCardImageUrl, fetchCardImageBlob, fetchWorkspaceMembers } from '../services/cardApi';
 import { useToast } from '../context/ToastContext';
@@ -789,7 +789,7 @@ export default function MobileCardsPage({
                                                                         onClick={() => openWhatsApp(ph, selectedCard)}
                                                                         className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-semibold flex items-center gap-1"
                                                                     >
-                                                                        <MessageCircle className="w-3 h-3" />
+                                                                        <WhatsAppIcon className="w-3 h-3" />
                                                                         <span>WhatsApp</span>
                                                                     </button>
                                                                 )}
@@ -900,7 +900,7 @@ export default function MobileCardsPage({
                                                 onClick={() => openWhatsApp(selectedCard.phone[0], selectedCard)}
                                                 className="py-3 px-2 rounded-2xl bg-[#0F9D58] hover:bg-[#0b8043] text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1 shadow-sm"
                                             >
-                                                <MessageCircle className="w-4 h-4" />
+                                                <WhatsAppIcon className="w-4 h-4" />
                                                 <span>WhatsApp</span>
                                             </button>
                                         )

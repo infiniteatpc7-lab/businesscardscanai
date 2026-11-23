@@ -269,6 +269,9 @@ class BulkImportController extends Controller
      */
     public function processNext(Request $request, string $uuid): JsonResponse
     {
+        @ini_set('max_execution_time', '120');
+        @set_time_limit(120);
+
         $batch = $this->resolveBatch($request, $uuid);
 
         if ($batch->isCancelled()) {

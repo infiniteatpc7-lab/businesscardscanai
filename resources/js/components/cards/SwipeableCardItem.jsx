@@ -1,13 +1,13 @@
 import React, { useState, useRef } from 'react';
 import {
     Trash2,
-    MessageCircle,
     Phone,
     MapPin,
     User,
     UserPlus,
     Share2
 } from 'lucide-react';
+import WhatsAppIcon from '../common/WhatsAppIcon';
 import {
     downloadVCard,
     openWhatsApp,
@@ -235,7 +235,7 @@ export default function SwipeableCardItem({
                                 </>
                             ) : (
                                 <>
-                                    <MessageCircle className="w-5 h-5 fill-white stroke-[#0F9D58]" />
+                                    <WhatsAppIcon className="w-5 h-5 text-white" />
                                     <span>WhatsApp</span>
                                 </>
                             )
@@ -368,7 +368,7 @@ export default function SwipeableCardItem({
                                 className="w-8 h-8 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/60 flex items-center justify-center transition-all active:scale-95"
                                 title="Chat on WhatsApp"
                             >
-                                <MessageCircle className="w-3.5 h-3.5" />
+                                <WhatsAppIcon className="w-4 h-4" />
                             </button>
                         )}
 

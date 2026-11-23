@@ -11,6 +11,8 @@ import ExhibitionSelectorModal from './components/exhibition/ExhibitionSelectorM
 import ExhibitionManageModal from './components/exhibition/ExhibitionManageModal';
 import PlanUpgradeModal from './components/subscription/PlanUpgradeModal';
 import CustomerSubscriptionDashboard from './components/subscription/CustomerSubscriptionDashboard';
+import IosInstallDrawer from './components/common/IosInstallDrawer';
+import { usePwaInstall } from './hooks/usePwaInstall';
 import { ToastProvider, useToast } from './context/ToastContext';
 import {
     fetchCards,
@@ -53,6 +55,17 @@ function MobileAppContent() {
     });
     const [isSubscriptionDashboardOpen, setIsSubscriptionDashboardOpen] = useState(false);
     const [subscriptionQuota, setSubscriptionQuota] = useState(null);
+
+    // PWA Mobile App Shortcut & Installation state
+    const {
+        canInstall,
+        isIOS,
+        isIOSModalOpen,
+        setIsIOSModalOpen,
+        triggerInstall,
+        isBannerDismissed,
+        dismissBanner,
+    } = usePwaInstall();
 
     // Live Quota refresh helper
     const refreshQuota = async () => {
@@ -321,13 +334,7 @@ function MobileAppContent() {
                 <MobileHeader
                     currentExhibition={currentExhibition}
                     onOpenExhibitionSelector={() => setIsExhibitionSelectorOpen(true)}
-                    onLoadSample={() => {
-                        setActiveTab('scan');
-                        setTimeout(() => {
-                            const sampleBtn = document.querySelector('button[title*="Morbi Depo"]');
-                            if (sampleBtn) sampleBtn.click();
-                        }, 100);
-                    }}
+                    onNavigateToScan={() => setActiveTab('scan')}
                 />
 
                 {/* Account / Workspace Suspension Recovery Banner */}
@@ -362,8 +369,14 @@ function MobileAppContent() {
                                     setSelectedCardForModal(card);
                                     setActiveTab('cards');
                                 }}
-                                onLoadSample={() => setActiveTab('scan')}
                                 onExportCSV={handleExportCSV}
+                                workspace={authWorkspace}
+                                currentPlan={authWorkspace?.plan_name || subscriptionQuota?.plan_name}
+                                onOpenSubscription={() => setIsSubscriptionDashboardOpen(true)}
+                                onInstallApp={triggerInstall}
+                                canInstall={canInstall}
+                                isBannerDismissed={isBannerDismissed}
+                                onDismissBanner={dismissBanner}
                             />
                         )}
 
@@ -465,6 +478,13 @@ function MobileAppContent() {
                     userRole={authWorkspace?.role || 'owner'}
                     onSwitchWorkspace={handleWorkspaceChanged}
                     workspaces={workspacesList}
+                />
+
+                {/* PWA iOS / Fallback Install Instructions Drawer */}
+                <IosInstallDrawer
+                    isOpen={isIOSModalOpen}
+                    onClose={() => setIsIOSModalOpen(false)}
+                    isIOS={isIOS}
                 />
             </div>
         </div>

@@ -4,7 +4,6 @@ import {
     X,
     Sparkles,
     Check,
-    MessageCircle,
     PhoneCall,
     ArrowRight,
     FileSpreadsheet,
@@ -17,6 +16,7 @@ import {
     Users,
     Calendar
 } from 'lucide-react';
+import WhatsAppIcon from '../common/WhatsAppIcon';
 
 const UPGRADE_PLANS = [
     {
@@ -317,7 +317,7 @@ export default function PlanUpgradeModal({
                             rel="noopener noreferrer"
                             className="w-full py-3 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm"
                         >
-                            <MessageCircle className="w-4 h-4" />
+                            <WhatsAppIcon className="w-4 h-4" />
                             <span>
                                 Upgrade to {activePlanIndex === 0 ? 'Pro' : 'Business'} via WhatsApp
                             </span>

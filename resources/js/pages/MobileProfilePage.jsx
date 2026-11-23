@@ -271,7 +271,7 @@ export default function MobileProfilePage({
                     <div className="flex items-center justify-between p-3 rounded-2xl bg-zinc-50 border border-zinc-200/60">
                         <div>
                             <span className="font-bold text-zinc-900 block">Language Support</span>
-                            <span className="text-[10px] text-zinc-500">Gujarati, Hindi & English</span>
+                            <span className="text-[10px] text-zinc-500">All Languages</span>
                         </div>
                         <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                     </div>

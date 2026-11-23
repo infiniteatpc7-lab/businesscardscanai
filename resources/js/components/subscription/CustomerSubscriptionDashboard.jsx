@@ -6,7 +6,6 @@ import {
     CheckCircle2,
     Sparkles,
     Check,
-    MessageCircle,
     PhoneCall,
     Mail,
     ArrowRight,
@@ -30,6 +29,7 @@ import {
     fetchAvailablePlans,
     requestPlanUpgrade
 } from '../../services/cardApi';
+import WhatsAppIcon from '../common/WhatsAppIcon';
 
 export default function CustomerSubscriptionDashboard({
     isOpen,
@@ -486,7 +486,7 @@ export default function CustomerSubscriptionDashboard({
                                                             rel="noopener noreferrer"
                                                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 text-white font-bold text-[11px] hover:bg-emerald-700 mt-1"
                                                         >
-                                                            <MessageCircle className="w-3.5 h-3.5" />
+                                                            <WhatsAppIcon className="w-3.5 h-3.5" />
                                                             <span>Open WhatsApp Chat Now</span>
                                                         </a>
                                                     )}
@@ -556,7 +556,7 @@ export default function CustomerSubscriptionDashboard({
                                                                             rel="noopener noreferrer"
                                                                             className="flex-1 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
                                                                         >
-                                                                            <MessageCircle className="w-3.5 h-3.5" />
+                                                                            <WhatsAppIcon className="w-3.5 h-3.5" />
                                                                             <span>Instant WhatsApp Upgrade</span>
                                                                         </a>
                                                                         <button

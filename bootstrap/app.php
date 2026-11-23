@@ -15,6 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->trustProxies(at: '*');
         $middleware->alias([
             'api.auth' => AuthenticateApiToken::class,
             'platform.admin.auth' => AuthenticatePlatformAdmin::class,

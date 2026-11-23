@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
     X,
-    MessageCircle,
     Mail,
     Copy,
     Check,
@@ -10,6 +9,7 @@ import {
     Share2,
     Building2
 } from 'lucide-react';
+import WhatsAppIcon from '../common/WhatsAppIcon';
 import {
     formatCardShareText,
     getWhatsAppShareUrl,
@@ -137,7 +137,7 @@ export default function ShareCardModal({ card, onClose, showToast }) {
                             className="flex flex-col items-center group active:scale-95 transition-transform"
                         >
                             <div className="w-14 h-14 rounded-2xl bg-[#25D366]/10 text-[#25D366] group-hover:bg-[#25D366]/20 border border-[#25D366]/20 flex items-center justify-center transition-colors">
-                                <MessageCircle className="w-6 h-6 fill-[#25D366]/10" />
+                                <WhatsAppIcon className="w-6 h-6" />
                             </div>
                             <span className="text-[11px] font-semibold text-zinc-700 mt-1.5 truncate max-w-full">
                                 WhatsApp

@@ -10,7 +10,10 @@ import {
     Languages,
     User,
     ChevronRight,
-    CheckCircle2
+    CheckCircle2,
+    Zap,
+    Smartphone,
+    X
 } from 'lucide-react';
 
 export default function MobileHomePage({
@@ -19,9 +22,17 @@ export default function MobileHomePage({
     onNavigateToCards,
     onSelectCard,
     onLoadSample,
-    onExportCSV
+    onExportCSV,
+    workspace = null,
+    currentPlan = null,
+    onOpenSubscription,
+    onInstallApp,
+    canInstall = false,
+    isBannerDismissed = false,
+    onDismissBanner
 }) {
     const totalCount = cards.length;
+    const currentPlanName = currentPlan || workspace?.plan_name || 'Free Plan';
 
     return (
         <div className="space-y-3 pb-20">
@@ -34,6 +45,7 @@ export default function MobileHomePage({
                     loop
                     muted
                     playsInline
+                    preload="auto"
                     controls={false}
                     disablePictureInPicture
                     disableRemotePlayback
@@ -53,12 +65,7 @@ export default function MobileHomePage({
                 {/* Contrast Scrim / Overlay so text & buttons pop clearly */}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/60 to-black/45 pointer-events-none" />
 
-                <div className="relative z-10 space-y-2.5">
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/40 border border-white/15 backdrop-blur-md text-[10px] font-semibold text-emerald-400">
-                        <Languages className="w-3 h-3" />
-                        <span>Gujarati · Hindi · English Recognition</span>
-                    </div>
-
+                <div className="relative z-10 space-y-3">
                     <h2 className="text-xl font-extrabold tracking-tight leading-snug drop-shadow-sm">
                         Ready to scan visiting cards at booth?
                     </h2>
@@ -67,21 +74,13 @@ export default function MobileHomePage({
                         Instantly extract business details, phone numbers, and complete postal addresses directly into your directory.
                     </p>
 
-                    <div className="pt-1.5 flex flex-col gap-2">
+                    <div className="pt-1 flex flex-col gap-2">
                         <button
                             onClick={onNavigateToScan}
-                            className="w-full py-3 px-5 rounded-2xl bg-white text-zinc-950 text-xs font-extrabold hover:bg-zinc-100 transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                            className="w-full py-3 px-5 rounded-2xl bg-white text-zinc-950 text-xs font-extrabold hover:bg-zinc-100 transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
                         >
                             <ScanLine className="w-4 h-4 text-zinc-950" />
                             <span>Open Camera Scanner</span>
-                        </button>
-
-                        <button
-                            onClick={onLoadSample}
-                            className="w-full py-2 px-4 rounded-xl bg-black/40 hover:bg-black/60 border border-white/20 text-white text-xs font-semibold backdrop-blur-md transition-all active:scale-95 flex items-center justify-center gap-1.5"
-                        >
-                            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                            <span>Try Sample Gujarati Card (મોરબી ડેપો)</span>
                         </button>
                     </div>
                 </div>
@@ -109,23 +108,73 @@ export default function MobileHomePage({
                     </div>
                 </div>
 
-                {/* Metric 2: Languages (Renamed from Scripts, clearly displaying Gujarati, Hindi, English) */}
-                <div className="bg-white rounded-3xl p-3.5 shadow-behance border border-black/[0.04] space-y-1">
+                {/* Metric 2: Current Plan */}
+                <div
+                    onClick={onOpenSubscription}
+                    className="bg-white rounded-3xl p-3.5 shadow-behance border border-black/[0.04] space-y-1 cursor-pointer active:scale-95 transition-all"
+                    title="View subscription and plan details"
+                >
                     <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Languages</span>
-                        <div className="w-7 h-7 rounded-xl bg-zinc-100 text-zinc-800 flex items-center justify-center">
-                            <Languages className="w-3.5 h-3.5" />
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Current Plan</span>
+                        <div className="w-7 h-7 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                            <Zap className="w-3.5 h-3.5" />
                         </div>
                     </div>
                     <div className="text-sm font-extrabold text-zinc-950 leading-none py-1 truncate">
-                        Gujarati · Hindi
+                        {currentPlanName}
                     </div>
                     <div className="text-[10px] text-zinc-500 font-medium truncate flex items-center gap-1">
                         <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500 shrink-0" />
-                        <span>English Recognition</span>
+                        <span>Active Membership</span>
                     </div>
                 </div>
             </div>
+
+            {/* PWA Mobile App Shortcut Card (Option 1) */}
+            {canInstall && !isBannerDismissed && (
+                <div className="bg-white rounded-3xl p-4 sm:p-5 shadow-behance border border-black/[0.04] relative overflow-hidden transition-all">
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-3 flex-1 min-w-0">
+                            <div className="w-10 h-10 rounded-2xl bg-zinc-950 flex items-center justify-center text-white shrink-0 shadow-md">
+                                <ScanLine className="w-5 h-5 text-orange-500" />
+                            </div>
+                            <div className="space-y-1 min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                    <h3 className="text-xs font-extrabold text-zinc-950 tracking-tight">
+                                        Install CardScan AI App
+                                    </h3>
+                                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                                        Home Screen
+                                    </span>
+                                </div>
+                                <p className="text-[11px] text-zinc-500 leading-relaxed">
+                                    Add 1-tap shortcut to your phone screen — scan cards instantly in full-screen without opening the browser.
+                                </p>
+                            </div>
+                        </div>
+
+                        {onDismissBanner && (
+                            <button
+                                onClick={onDismissBanner}
+                                className="p-1 rounded-full text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors shrink-0 cursor-pointer"
+                                title="Dismiss"
+                            >
+                                <X className="w-3.5 h-3.5" />
+                            </button>
+                        )}
+                    </div>
+
+                    <div className="mt-3 pt-3 border-t border-zinc-100 flex items-center gap-2">
+                        <button
+                            onClick={onInstallApp}
+                            className="flex-1 py-2.5 px-4 rounded-xl bg-zinc-950 hover:bg-black text-white text-xs font-bold transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+                        >
+                            <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>Add Shortcut to Phone</span>
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Bento Tile 3: Recent Cards Section (Max 3 records, refined hierarchy, compact) */}
             <div className="bg-white rounded-3xl p-4 sm:p-5 shadow-behance border border-black/[0.04] space-y-3">

@@ -8,7 +8,6 @@ import {
     Copy,
     CheckCircle2,
     ArrowRight,
-    MessageCircle,
     UserPlus,
     X,
     Camera,
@@ -26,6 +25,7 @@ import { scanCard, saveCard, uploadCardImage, releaseScanReservation } from '../
 import { downloadVCard, openWhatsApp, isLandlineNumber, initiatePhoneCall } from '../services/vcfHelper';
 import { useImageProcessor } from '../hooks/useImageProcessor';
 import { useToast } from '../context/ToastContext';
+import WhatsAppIcon from '../components/common/WhatsAppIcon';
 
 export default function MobileScannerView({
     onCardSaved,
@@ -493,7 +493,7 @@ export default function MobileScannerView({
                                     onClick={() => openWhatsApp(primaryPhone, cardData)}
                                     className="py-2.5 px-3 rounded-2xl bg-[#0F9D58] hover:bg-[#0b8043] text-white text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
                                 >
-                                    <MessageCircle className="w-3.5 h-3.5" />
+                                    <WhatsAppIcon className="w-3.5 h-3.5" />
                                     <span>WhatsApp</span>
                                 </button>
                             )}
