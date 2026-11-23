@@ -382,9 +382,16 @@ EOT;
                 'models_attempted' => $modelsToTry,
             ]);
 
+            $userMessage = 'Unable to extract business card details. Please ensure the card is clear, well-lit, and try again.';
+            if (str_contains(strtolower($lastError ?? ''), 'leaked') || str_contains(strtolower($lastError ?? ''), 'use another api key')) {
+                $userMessage = 'Gemini API key has been revoked by Google (reported as leaked). Please generate a new key at Google AI Studio and update GEMINI_API_KEY in .env.';
+            } elseif (str_contains(strtolower($lastError ?? ''), 'api_key_invalid') || str_contains(strtolower($lastError ?? ''), 'api key not valid')) {
+                $userMessage = 'Invalid Gemini API key. Please check your GEMINI_API_KEY in .env.';
+            }
+
             return response()->json([
                 'success' => false,
-                'message' => 'Unable to extract business card details. Please ensure the card is clear, well-lit, and try again.',
+                'message' => $userMessage,
             ], 502);
         }
 
@@ -1345,13 +1352,28 @@ EOT;
         $role = $request->attributes->get('workspace_role');
         $user = $request->user();
 
-        if (! $workspace->hasFeature('export_csv')) {
-            return response()->json([
-                'success' => false,
-                'error_code' => 'FEATURE_NOT_INCLUDED',
-                'message' => 'CSV/Excel export is not included in your current plan. Please upgrade to Pro or Business.',
-                'feature' => 'export_csv',
-            ], 403);
+        $format = strtolower((string) $request->input('format', $request->query('format', 'csv')));
+
+        if ($format === 'vcf') {
+            if (! $workspace->hasFeature('export_vcf')) {
+                return response()->json([
+                    'success' => false,
+                    'error_code' => 'FEATURE_NOT_INCLUDED',
+                    'message' => 'All VCF contact export is not included in your current plan. Please upgrade to Pro or Business.',
+                    'feature' => 'export_vcf',
+                    'feature_name' => 'All VCF Export',
+                ], 403);
+            }
+        } else {
+            if (! $workspace->hasFeature('export_csv')) {
+                return response()->json([
+                    'success' => false,
+                    'error_code' => 'FEATURE_NOT_INCLUDED',
+                    'message' => 'CSV/Excel export is not included in your current plan. Please upgrade to Pro or Business.',
+                    'feature' => 'export_csv',
+                    'feature_name' => 'CSV & Excel Export',
+                ], 403);
+            }
         }
 
         $query = Card::forWorkspace($workspace->id)->with(['exhibitions']);
@@ -1363,7 +1385,67 @@ EOT;
             });
         }
 
+        if ($exhibitionId = $request->input('exhibition_id', $request->query('exhibition_id'))) {
+            if ($exhibitionId !== 'all') {
+                $query->whereHas('exhibitions', function ($q) use ($exhibitionId) {
+                    $q->where('exhibitions.id', (int) $exhibitionId);
+                });
+            }
+        }
+
         $cards = $query->latest('id')->get();
+
+        if ($format === 'vcf') {
+            $headers = [
+                'Content-Type' => 'text/vcard; charset=UTF-8',
+                'Content-Disposition' => 'attachment; filename="all_contacts_'.now()->format('Y-m-d').'.vcf"',
+            ];
+
+            $callback = function () use ($cards) {
+                $output = fopen('php://output', 'w');
+
+                foreach ($cards as $card) {
+                    $name = $card->name ?: ($card->name_english ?: ($card->company ?: 'Business Contact'));
+                    $company = $card->company ?: ($card->company_english ?: '');
+                    $title = $card->designation ?: '';
+                    $email = $card->email ?: '';
+                    $website = $card->website ?: '';
+                    $address = $card->address ?: ($card->address_english ?: '');
+                    $phones = is_array($card->phone) ? $card->phone : ($card->phone ? [$card->phone] : []);
+
+                    fwrite($output, "BEGIN:VCARD\r\nVERSION:3.0\r\n");
+                    fwrite($output, "FN:{$name}\r\n");
+                    if ($company) {
+                        fwrite($output, "ORG:{$company}\r\n");
+                    }
+                    if ($title) {
+                        fwrite($output, "TITLE:{$title}\r\n");
+                    }
+                    foreach ($phones as $idx => $phone) {
+                        $clean = preg_replace('/[^0-9+]/', '', (string) $phone);
+                        if ($clean !== '') {
+                            $type = ($idx === 0) ? 'CELL,PREF' : 'WORK';
+                            fwrite($output, "TEL;TYPE={$type}:{$clean}\r\n");
+                        }
+                    }
+                    if ($email) {
+                        fwrite($output, "EMAIL;TYPE=WORK:{$email}\r\n");
+                    }
+                    if ($website) {
+                        fwrite($output, "URL:{$website}\r\n");
+                    }
+                    if ($address) {
+                        $escapedAdr = str_replace(["\r", "\n", ';', ','], [' ', ' ', '\\;', '\\,'], $address);
+                        fwrite($output, "ADR;TYPE=WORK:;;{$escapedAdr};;;;\r\n");
+                    }
+                    fwrite($output, "END:VCARD\r\n");
+                }
+
+                fclose($output);
+            };
+
+            return response()->stream($callback, 200, $headers);
+        }
 
         $headers = [
             'Content-Type' => 'text/csv; charset=UTF-8',

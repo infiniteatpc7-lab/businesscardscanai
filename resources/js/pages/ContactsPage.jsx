@@ -16,6 +16,7 @@ import {
     Check,
     X,
     FileSpreadsheet,
+    UserPlus,
     Languages
 } from 'lucide-react';
 import { AccuracyBadge, StatusBadge } from '../components/common/Badge';
@@ -94,6 +95,29 @@ export default function ContactsPage({
         }
     };
 
+    // Export All VCF with backend plan entitlement check
+    const handleExportVCF = async () => {
+        if (cards.length === 0) {
+            showToast('No contacts to export', 'info');
+            return;
+        }
+
+        try {
+            const res = await exportCards('vcf');
+            if (res.forbidden) {
+                // authFetch already dispatched plan:upgrade_required modal
+                return;
+            } else if (res.success) {
+                showToast('All contacts VCF downloaded successfully!');
+            } else {
+                showToast(res.message || 'Export failed', 'error');
+            }
+        } catch (err) {
+            console.error('VCF export error:', err);
+            showToast('Failed to export VCF contacts', 'error');
+        }
+    };
+
     return (
         <div className="space-y-6">
             {/* Header Toolbar */}
@@ -140,7 +164,16 @@ export default function ContactsPage({
                         </button>
                     </div>
 
-                    {/* Export CSV */}
+                    {/* Export All VCF & CSV */}
+                    <button
+                        onClick={handleExportVCF}
+                        className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-bold transition-all active:scale-95"
+                        title="Download all contact cards into a single .vcf file"
+                    >
+                        <UserPlus className="w-3.5 h-3.5 text-zinc-600" />
+                        <span>All VCF</span>
+                    </button>
+
                     <button
                         onClick={handleExportCSV}
                         className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-bold transition-all active:scale-95"

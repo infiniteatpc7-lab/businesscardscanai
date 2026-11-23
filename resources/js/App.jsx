@@ -317,6 +317,46 @@ function MobileAppContent() {
         }
     };
 
+    const handleExportVCF = async () => {
+        // Pre-emptive check: If workspace plan does not include export_vcf, open upgrade modal
+        const features = authWorkspace?.features || [];
+        if (features.length > 0 && !features.includes('export_vcf')) {
+            setUpgradeModal({
+                isOpen: true,
+                reason: 'feature_locked',
+                featureKey: 'export_vcf',
+                featureName: 'All VCF Export',
+                message: 'Exporting all contacts to a combined VCF file is included in Pro & Business plans.',
+            });
+            return;
+        }
+
+        if (cards.length === 0) {
+            showToast('No contacts to export', 'info');
+            return;
+        }
+
+        try {
+            const res = await exportCards('vcf');
+            if (res.forbidden) {
+                setUpgradeModal({
+                    isOpen: true,
+                    reason: 'feature_locked',
+                    featureKey: res.feature || 'export_vcf',
+                    featureName: res.feature_name || 'All VCF Export',
+                    message: res.message || 'Exporting all contacts to VCF is not included in your current plan.',
+                });
+            } else if (res.success) {
+                showToast('All contacts VCF downloaded successfully!');
+            } else {
+                showToast(res.message || 'Export failed', 'error');
+            }
+        } catch (err) {
+            console.error('VCF export error:', err);
+            showToast('Failed to export VCF', 'error');
+        }
+    };
+
     return (
         <div className="min-h-screen bg-[#ECECEE] flex justify-center selection:bg-black selection:text-white">
             {/* Auth Modal for Unauthenticated Users */}
@@ -370,6 +410,7 @@ function MobileAppContent() {
                                     setActiveTab('cards');
                                 }}
                                 onExportCSV={handleExportCSV}
+                                onExportVCF={handleExportVCF}
                                 workspace={authWorkspace}
                                 currentPlan={authWorkspace?.plan_name || subscriptionQuota?.plan_name}
                                 onOpenSubscription={() => setIsSubscriptionDashboardOpen(true)}
@@ -386,6 +427,7 @@ function MobileAppContent() {
                                 onRefresh={loadCards}
                                 onNavigateToScan={() => setActiveTab('scan')}
                                 onExportCSV={handleExportCSV}
+                                onExportVCF={handleExportVCF}
                                 initialSelectedCard={selectedCardForModal}
                                 onClearSelectedCard={() => setSelectedCardForModal(null)}
                                 exhibitions={exhibitionsList}
@@ -416,6 +458,7 @@ function MobileAppContent() {
                             <MobileProfilePage
                                 cardsCount={cards.length}
                                 onExportCSV={handleExportCSV}
+                                onExportVCF={handleExportVCF}
                                 user={authUser}
                                 workspace={authWorkspace}
                                 workspaces={workspacesList}

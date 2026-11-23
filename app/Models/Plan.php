@@ -110,6 +110,10 @@ class Plan extends Model
                     'name' => 'Export to Excel (.xlsx)',
                     'description' => 'Download structured Microsoft Excel formatted workbooks',
                 ],
+                'export_vcf' => [
+                    'name' => 'Export All to VCF (vCard)',
+                    'description' => 'Download combined vCard (.vcf) file to save all contact names and phone numbers to phonebook',
+                ],
                 'api_access' => [
                     'name' => 'Developer API Access',
                     'description' => 'Access REST endpoints for custom CRM and webhook integrations',

@@ -463,6 +463,38 @@ class SubscriptionAndQuotaTest extends TestCase
         $forbiddenResponse->assertStatus(403)
             ->assertJsonPath('error_code', 'FEATURE_NOT_INCLUDED')
             ->assertJsonPath('feature', 'export_csv');
+
+        // Test VCF export entitlement
+        $vcfPlan = Plan::create([
+            'name' => 'VCF Enabled Plan',
+            'slug' => 'vcf-plan-'.uniqid(),
+            'price' => 999,
+            'currency' => 'INR',
+            'monthly_scan_allowance' => 100,
+            'max_team_members' => 5,
+            'max_workspaces' => 2,
+            'max_active_exhibitions' => 5,
+            'features' => ['export_vcf'],
+            'is_active' => true,
+        ]);
+
+        $workspace->activeSubscription()->update(['plan_id' => $vcfPlan->id]);
+
+        $vcfResponse = $this->withHeader('Authorization', "Bearer {$data['token']}")
+            ->get('/api/cards/export?format=vcf');
+
+        $vcfResponse->assertOk();
+        $this->assertStringContainsString('text/vcard', $vcfResponse->headers->get('Content-Type'));
+
+        // Test VCF forbidden when feature missing
+        $workspace->activeSubscription()->update(['plan_id' => $restrictedPlan->id]);
+
+        $vcfForbidden = $this->withHeader('Authorization', "Bearer {$data['token']}")
+            ->getJson('/api/cards/export?format=vcf');
+
+        $vcfForbidden->assertStatus(403)
+            ->assertJsonPath('error_code', 'FEATURE_NOT_INCLUDED')
+            ->assertJsonPath('feature', 'export_vcf');
     }
 
     public function test_team_member_limit_enforcement(): void

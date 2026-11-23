@@ -545,6 +545,7 @@ export async function cancelBulkImport(uuid) {
 
 /**
  * Export cards via authenticated backend endpoint enforcing plan entitlements.
+ * Supports format: 'csv' | 'excel' | 'vcf'
  */
 export async function exportCards(format = 'csv') {
     const response = await authFetch(`/api/cards/export?format=${format}`);
@@ -554,7 +555,9 @@ export async function exportCards(format = 'csv') {
             success: false,
             forbidden: true,
             error_code: data.error_code,
-            message: data.message || 'CSV/Excel export is not included in your current plan.'
+            feature: data.feature || (format === 'vcf' ? 'export_vcf' : 'export_csv'),
+            feature_name: data.feature_name || (format === 'vcf' ? 'All VCF Export' : 'CSV Export'),
+            message: data.message || (format === 'vcf' ? 'All VCF export is not included in your current plan.' : 'CSV/Excel export is not included in your current plan.')
         };
     }
     if (!response.ok) {
@@ -566,7 +569,8 @@ export async function exportCards(format = 'csv') {
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `contacts_export_${new Date().toISOString().slice(0, 10)}.${format === 'excel' ? 'xlsx' : 'csv'}`);
+    const extension = format === 'excel' ? 'xlsx' : (format === 'vcf' ? 'vcf' : 'csv');
+    link.setAttribute('download', `${format === 'vcf' ? 'all_contacts' : 'contacts_export'}_${new Date().toISOString().slice(0, 10)}.${extension}`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

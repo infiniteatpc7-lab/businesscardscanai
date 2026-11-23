@@ -35,6 +35,7 @@ export default function MobileCardsPage({
     onRefresh,
     onNavigateToScan,
     onExportCSV,
+    onExportVCF,
     initialSelectedCard = null,
     onClearSelectedCard,
     exhibitions = [],
@@ -438,14 +439,24 @@ export default function MobileCardsPage({
                         </button>
                     </div>
 
-                    <button
-                        onClick={onExportCSV}
-                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[11px] font-semibold transition-all active:scale-95 shrink-0"
-                        title="Export CSV"
-                    >
-                        <FileSpreadsheet className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
-                        <span>Export CSV</span>
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                            onClick={onExportVCF}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[11px] font-semibold transition-all active:scale-95"
+                            title="Export All Cards as VCF (Phone Contacts)"
+                        >
+                            <UserPlus className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
+                            <span>All VCF</span>
+                        </button>
+                        <button
+                            onClick={onExportCSV}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[11px] font-semibold transition-all active:scale-95"
+                            title="Export CSV"
+                        >
+                            <FileSpreadsheet className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
+                            <span>Export CSV</span>
+                        </button>
+                    </div>
                 </div>
 
                 {/* Exhibition Filter Dropdown */}

@@ -7,6 +7,7 @@ import {
     Database,
     Copy,
     CheckCircle2,
+    Check,
     ArrowRight,
     UserPlus,
     X,
@@ -417,21 +418,37 @@ export default function MobileScannerView({
             {/* Extracted Data Bento Card */}
             {cardData && (
                 <div className="bg-white rounded-3xl p-5 shadow-behance border border-black/[0.04] space-y-4">
-                    {/* Header: Status & View Switcher */}
-                    <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
-                        <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200/60">
+                    {/* Header: Status & View Switcher & Quick Save */}
+                    <div className="flex items-center justify-between pb-3 border-b border-zinc-100 gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200/60 shrink-0">
                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                                 <span>Extracted</span>
                             </div>
-                            <span className="text-[10px] font-bold text-zinc-500 uppercase font-mono tracking-wider">
+                            <span className="text-[10px] font-bold text-zinc-500 uppercase font-mono tracking-wider truncate">
                                 {cardData.detected_language || 'Gujarati'}
                             </span>
                         </div>
 
-                        <span className="text-[11px] text-zinc-400 font-medium">
-                            Review & Edit
-                        </span>
+                        <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[11px] text-zinc-400 font-medium hidden min-[360px]:inline">
+                                Review & Edit
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => handleSave(false)}
+                                disabled={isSaving}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-black hover:bg-zinc-800 disabled:bg-zinc-400 text-white text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer shrink-0"
+                                title="Save Card"
+                            >
+                                {isSaving ? (
+                                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                ) : (
+                                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                )}
+                                <span>{isSaving ? 'Saving...' : 'Save'}</span>
+                            </button>
+                        </div>
                     </div>
 
                     {/* Extracted Form Editor */}

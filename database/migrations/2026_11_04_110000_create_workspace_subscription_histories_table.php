@@ -28,9 +28,9 @@ return new class extends Migration
             $table->json('metadata')->nullable();
             $table->timestamp('created_at')->useCurrent();
 
-            // Composite indexes for audit and history queries
-            $table->index(['workspace_id', 'created_at']);
-            $table->index(['subscription_id', 'created_at']);
+            // Composite indexes for audit and history queries (explicit names to stay within MySQL 64-char limit)
+            $table->index(['workspace_id', 'created_at'], 'wsh_workspace_created_idx');
+            $table->index(['subscription_id', 'created_at'], 'wsh_subscription_created_idx');
         });
     }
 
