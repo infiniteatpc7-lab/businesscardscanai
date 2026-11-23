@@ -68,6 +68,12 @@ export function usePwaInstall() {
     }, []);
 
     const triggerInstall = useCallback(async () => {
+        // If loaded over insecure HTTP on a remote domain, Chrome blocks 1-tap install. Redirect to HTTPS immediately.
+        if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+            window.location.href = 'https://' + window.location.host + window.location.pathname + window.location.search;
+            return;
+        }
+
         const promptEvent = deferredPrompt || window.deferredPwaPrompt;
 
         if (promptEvent) {
@@ -83,7 +89,7 @@ export function usePwaInstall() {
                 setIsIOSModalOpen(true);
             }
         } else {
-            // Fallback: iOS Safari or browsers/origins where beforeinstallprompt is restricted (e.g. non-HTTPS local IP)
+            // Fallback: iOS Safari (which requires Share > Add to Home screen) or browsers without native prompt
             setIsIOSModalOpen(true);
         }
     }, [deferredPrompt]);

@@ -1,5 +1,10 @@
-﻿<IfModule mod_rewrite.c>
+<IfModule mod_rewrite.c>
     RewriteEngine On
+
+    # Force HTTPS for PWA and Secure Context (Chrome requires HTTPS for 1-tap installation)
+    RewriteCond %{HTTPS} off
+    RewriteCond %{HTTP:X-Forwarded-Proto} !https
+    RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
     # Prevent direct access to sensitive files
     RewriteRule ^(\.env|composer\.(json|lock)|package\.(json|lock)|artisan) - [F,L,NC]
